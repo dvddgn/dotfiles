@@ -59,3 +59,6 @@
 
 [init]
   defaultBranch = master
+[user]
+	email = daviddeegan@gmail.com
+	name = David Deegan

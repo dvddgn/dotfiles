@@ -4,7 +4,7 @@ ZSH=$HOME/.oh-my-zsh
 ZSH_THEME="robbyrussell"
 
 # Useful oh-my-zsh plugins for Le Wagon bootcamps
-plugins=(git gitfast last-working-dir common-aliases zsh-syntax-highlighting history-substring-search)
+plugins=(git gitfast last-working-dir common-aliases zsh-syntax-highlighting history-substring-search ssh-agent)
 
 # (macOS-only) Prevent Homebrew from reporting - https://github.com/Homebrew/brew/blob/master/docs/Analytics.md
 export HOMEBREW_NO_ANALYTICS=1
@@ -70,3 +70,14 @@ export EDITOR=code
 
 # Set ipdb as the default Python debugger
 export PYTHONBREAKPOINT=ipdb.set_trace
+sudo /etc/init.d/postgresql start
+export PATH="$PATH:/snap/bin"
+export DISPLAY=:0
+export DISPLAY=:0
+export WAYLAND_DISPLAY=""
+export XDG_RUNTIME_DIR="/tmp"
+
+# Aliases for opening editors
+alias code="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code/bin/code"
+alias code-insiders="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code\ Insiders/bin/code-insiders"
+alias cursor="/mnt/c/Users/david/AppData/Local/Programs/cursor/resources/app/bin/code"

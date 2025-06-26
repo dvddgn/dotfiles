@@ -81,3 +81,55 @@ export XDG_RUNTIME_DIR="/tmp"
 alias code="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code/bin/code"
 alias code-insiders="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code\ Insiders/bin/code-insiders"
 alias cursor="/mnt/c/Users/david/AppData/Local/Programs/cursor/resources/app/bin/code"
+
+# Create worktrees
+
+# Remove any existing alias
+unalias create-worktree 2>/dev/null
+
+# Usage: create-worktree <feature-name>
+# Example: create-worktree user-authentication
+create-worktree() {
+    if [ $# -eq 0 ]; then
+        echo "Usage: create-worktree <feature-name>"
+        return 1
+    fi
+
+    FEATURE_NAME=$1
+    BRANCH_NAME="feature/$FEATURE_NAME"
+    WORKTREE_DIR="../time-hub-$FEATURE_NAME"
+    ORIGINAL_DIR=$(pwd)
+
+    echo "🌳 Creating worktree for: $FEATURE_NAME"
+    git worktree add "$WORKTREE_DIR" -b "$BRANCH_NAME" || return 1
+
+    cd "$WORKTREE_DIR"
+    bundle install
+    npm install
+    bin/rails db:migrate
+    bin/rails db:seed
+    cursor .
+
+    cd "$ORIGINAL_DIR"
+    echo "✅ Complete! Worktree created at $WORKTREE_DIR"
+}
+
+# Cleanup worktrees
+
+# Remove any existing alias
+unalias cleanup-worktree 2>/dev/null
+
+# Usage: cleanup-worktree <feature-name>
+# Example: cleanup-worktree user-authentication
+cleanup-worktree() {
+    if [ $# -eq 0 ]; then
+        echo "Usage: cleanup-worktree <feature-name>"
+        return 1
+    fi
+
+    FEATURE_NAME=$1
+    WORKTREE_DIR="../time-hub-$FEATURE_NAME"
+
+    git worktree remove "$WORKTREE_DIR"
+    echo "✅ Removed worktree: $WORKTREE_DIR"
+}

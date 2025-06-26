@@ -95,19 +95,35 @@ create-worktree() {
         return 1
     fi
 
+    # Get the current repo name from the directory
+    REPO_NAME=$(basename $(git rev-parse --show-toplevel))
     FEATURE_NAME=$1
     BRANCH_NAME="feature/$FEATURE_NAME"
-    WORKTREE_DIR="../time-hub-$FEATURE_NAME"
+    WORKTREE_DIR="../${REPO_NAME}-$FEATURE_NAME"
     ORIGINAL_DIR=$(pwd)
 
-    echo "🌳 Creating worktree for: $FEATURE_NAME"
+    echo "🌳 Creating worktree for: $FEATURE_NAME in $REPO_NAME"
     git worktree add "$WORKTREE_DIR" -b "$BRANCH_NAME" || return 1
 
     cd "$WORKTREE_DIR"
-    bundle install
-    npm install
-    bin/rails db:migrate
-    bin/rails db:seed
+
+    # Check what type of project it is and run appropriate commands
+    if [ -f "Gemfile" ]; then
+        echo "📦 Ruby project detected - running bundle install"
+        bundle install
+    fi
+
+    if [ -f "package.json" ]; then
+        echo "📦 Node project detected - running npm install"
+        npm install
+    fi
+
+    if [ -f "bin/rails" ]; then
+        echo "🗄️  Rails project detected - running migrations"
+        bin/rails db:migrate
+        bin/rails db:seed
+    fi
+
     cursor .
 
     cd "$ORIGINAL_DIR"
@@ -127,8 +143,10 @@ cleanup-worktree() {
         return 1
     fi
 
+    # Get the current repo name from the directory
+    REPO_NAME=$(basename $(git rev-parse --show-toplevel))
     FEATURE_NAME=$1
-    WORKTREE_DIR="../time-hub-$FEATURE_NAME"
+    WORKTREE_DIR="../${REPO_NAME}-$FEATURE_NAME"
 
     git worktree remove "$WORKTREE_DIR"
     echo "✅ Removed worktree: $WORKTREE_DIR"

@@ -70,7 +70,10 @@ export EDITOR=code
 
 # Set ipdb as the default Python debugger
 export PYTHONBREAKPOINT=ipdb.set_trace
-sudo /etc/init.d/postgresql start
+# Start PostgreSQL if available
+if [ -f /etc/init.d/postgresql ]; then
+    sudo /etc/init.d/postgresql start
+fi
 export PATH="$PATH:/snap/bin"
 export DISPLAY=:0
 export DISPLAY=:0
@@ -151,3 +154,11 @@ cleanup-worktree() {
     git worktree remove "$WORKTREE_DIR"
     echo "✅ Removed worktree: $WORKTREE_DIR"
 }
+
+# Created by `pipx` on 2025-07-27 15:31:25
+export PATH="$PATH:/home/deegan/.local/bin"
+export PATH=$PATH:~/.local/bin
+
+# Claude aliases
+alias cc="claude --dangerously-skip-permissions"
+alias ccc="claude --dangerously-skip-permissions --continue"

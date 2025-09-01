@@ -4,7 +4,13 @@ ZSH=$HOME/.oh-my-zsh
 ZSH_THEME="robbyrussell"
 
 # Useful oh-my-zsh plugins for Le Wagon bootcamps
-plugins=(git gitfast last-working-dir common-aliases zsh-syntax-highlighting history-substring-search ssh-agent)
+# Base plugins
+plugins=(git gitfast last-working-dir common-aliases history-substring-search ssh-agent)
+
+# Add zsh-syntax-highlighting if it exists
+if [[ -d "${ZSH}/custom/plugins/zsh-syntax-highlighting" ]] || [[ -d "${ZSH}/plugins/zsh-syntax-highlighting" ]]; then
+    plugins+=(zsh-syntax-highlighting)
+fi
 
 # (macOS-only) Prevent Homebrew from reporting - https://github.com/Homebrew/brew/blob/master/docs/Analytics.md
 export HOMEBREW_NO_ANALYTICS=1
@@ -70,9 +76,18 @@ export EDITOR=code
 
 # Set ipdb as the default Python debugger
 export PYTHONBREAKPOINT=ipdb.set_trace
-# Start PostgreSQL if available
-if [ -f /etc/init.d/postgresql ]; then
-    sudo /etc/init.d/postgresql start
+# Start PostgreSQL if available (skip in Docker containers)
+if [[ ! -f /.dockerenv ]] && [[ -z "${DEVCONTAINER}" ]]; then
+    # Only attempt to start PostgreSQL if not in a container
+    if command -v psql &> /dev/null || command -v postgres &> /dev/null; then
+        if [[ -f /etc/init.d/postgresql ]]; then
+            sudo /etc/init.d/postgresql start 2>/dev/null
+        elif command -v service &> /dev/null; then
+            sudo service postgresql start 2>/dev/null
+        elif command -v systemctl &> /dev/null; then
+            sudo systemctl start postgresql 2>/dev/null
+        fi
+    fi
 fi
 export PATH="$PATH:/snap/bin"
 export DISPLAY=:0

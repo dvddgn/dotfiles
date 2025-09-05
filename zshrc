@@ -1,3 +1,7 @@
+# To reload the file run
+# source ~/.zshrc
+# or just open a new terminal window
+
 ZSH=$HOME/.oh-my-zsh
 
 # You can change the theme with another one from https://github.com/robbyrussell/oh-my-zsh/wiki/themes
@@ -95,85 +99,20 @@ export DISPLAY=:0
 export WAYLAND_DISPLAY=""
 export XDG_RUNTIME_DIR="/tmp"
 
+# Created by `pipx` on 2025-07-27 15:31:25
+export PATH="$PATH:/home/deegan/.local/bin"
+
 # Aliases for opening editors
 alias code="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code/bin/code"
 alias code-insiders="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code\ Insiders/bin/code-insiders"
 alias cursor="/mnt/c/Users/david/AppData/Local/Programs/cursor/resources/app/bin/code"
 
-# Create worktrees
-
-# Remove any existing alias
-unalias create-worktree 2>/dev/null
-
-# Usage: create-worktree <feature-name>
-# Example: create-worktree user-authentication
-create-worktree() {
-    if [ $# -eq 0 ]; then
-        echo "Usage: create-worktree <feature-name>"
-        return 1
-    fi
-
-    # Get the current repo name from the directory
-    REPO_NAME=$(basename $(git rev-parse --show-toplevel))
-    FEATURE_NAME=$1
-    BRANCH_NAME="feature/$FEATURE_NAME"
-    WORKTREE_DIR="../${REPO_NAME}-$FEATURE_NAME"
-    ORIGINAL_DIR=$(pwd)
-
-    echo "🌳 Creating worktree for: $FEATURE_NAME in $REPO_NAME"
-    git worktree add "$WORKTREE_DIR" -b "$BRANCH_NAME" || return 1
-
-    cd "$WORKTREE_DIR"
-
-    # Check what type of project it is and run appropriate commands
-    if [ -f "Gemfile" ]; then
-        echo "📦 Ruby project detected - running bundle install"
-        bundle install
-    fi
-
-    if [ -f "package.json" ]; then
-        echo "📦 Node project detected - running npm install"
-        npm install
-    fi
-
-    if [ -f "bin/rails" ]; then
-        echo "🗄️  Rails project detected - running migrations"
-        bin/rails db:migrate
-        bin/rails db:seed
-    fi
-
-    cursor .
-
-    cd "$ORIGINAL_DIR"
-    echo "✅ Complete! Worktree created at $WORKTREE_DIR"
-}
-
-# Cleanup worktrees
-
-# Remove any existing alias
-unalias cleanup-worktree 2>/dev/null
-
-# Usage: cleanup-worktree <feature-name>
-# Example: cleanup-worktree user-authentication
-cleanup-worktree() {
-    if [ $# -eq 0 ]; then
-        echo "Usage: cleanup-worktree <feature-name>"
-        return 1
-    fi
-
-    # Get the current repo name from the directory
-    REPO_NAME=$(basename $(git rev-parse --show-toplevel))
-    FEATURE_NAME=$1
-    WORKTREE_DIR="../${REPO_NAME}-$FEATURE_NAME"
-
-    git worktree remove "$WORKTREE_DIR"
-    echo "✅ Removed worktree: $WORKTREE_DIR"
-}
-
-# Created by `pipx` on 2025-07-27 15:31:25
-export PATH="$PATH:/home/deegan/.local/bin"
-export PATH=$PATH:~/.local/bin
-
 # Claude aliases
 alias cc="claude --dangerously-skip-permissions"
 alias ccc="claude --dangerously-skip-permissions --continue"
+
+# Script shortcuts for Advice Innovation Hub
+alias sshs='ssh -i ~/.ssh/aih-staging-key.pem ec2-user@16.176.107.106' # Staging
+alias sshp='ssh -i ~/.ssh/aih-production-key.pem ec2-user@54.66.154.73' # Production
+alias stop-staging='/workspaces/advice-innovation-hub/scripts/aws/stop-staging.sh'
+alias start-staging='/workspaces/advice-innovation-hub/scripts/aws/start-staging.sh'

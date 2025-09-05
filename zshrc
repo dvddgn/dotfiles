@@ -114,5 +114,8 @@ alias ccc="claude --dangerously-skip-permissions --continue"
 # Script shortcuts for Advice Innovation Hub
 alias sshs='ssh -i ~/.ssh/aih-staging-key.pem ec2-user@16.176.107.106' # Staging
 alias sshp='ssh -i ~/.ssh/aih-production-key.pem ec2-user@54.66.154.73' # Production
-alias stop-staging='/workspaces/advice-innovation-hub/scripts/aws/stop-staging.sh'
-alias start-staging='/workspaces/advice-innovation-hub/scripts/aws/start-staging.sh'
+alias ds='kamal deploy -d staging'
+alias dp='kamal deploy -d production'
+alias stops='/workspaces/advice-innovation-hub/scripts/aws/stop-staging.sh'
+alias starts='/workspaces/advice-innovation-hub/scripts/aws/start-staging.sh'
+alias statuss='/workspaces/advice-innovation-hub/scripts/aws/status-staging.sh'

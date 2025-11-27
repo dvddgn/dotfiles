@@ -1,10 +1,20 @@
+# To reload the file run
+# source ~/.zshrc
+# or just open a new terminal window
+
 ZSH=$HOME/.oh-my-zsh
 
 # You can change the theme with another one from https://github.com/robbyrussell/oh-my-zsh/wiki/themes
 ZSH_THEME="robbyrussell"
 
 # Useful oh-my-zsh plugins for Le Wagon bootcamps
-plugins=(git gitfast last-working-dir common-aliases zsh-syntax-highlighting history-substring-search)
+# Base plugins
+plugins=(git gitfast last-working-dir common-aliases history-substring-search ssh-agent)
+
+# Add zsh-syntax-highlighting if it exists
+if [[ -d "${ZSH}/custom/plugins/zsh-syntax-highlighting" ]] || [[ -d "${ZSH}/plugins/zsh-syntax-highlighting" ]]; then
+    plugins+=(zsh-syntax-highlighting)
+fi
 
 # (macOS-only) Prevent Homebrew from reporting - https://github.com/Homebrew/brew/blob/master/docs/Analytics.md
 export HOMEBREW_NO_ANALYTICS=1
@@ -70,3 +80,48 @@ export EDITOR=code
 
 # Set ipdb as the default Python debugger
 export PYTHONBREAKPOINT=ipdb.set_trace
+# Start PostgreSQL if available (skip in Docker containers)
+if [[ ! -f /.dockerenv ]] && [[ -z "${DEVCONTAINER}" ]]; then
+    # Only attempt to start PostgreSQL if not in a container
+    if command -v psql &> /dev/null || command -v postgres &> /dev/null; then
+        if [[ -f /etc/init.d/postgresql ]]; then
+            sudo /etc/init.d/postgresql start 2>/dev/null
+        elif command -v service &> /dev/null; then
+            sudo service postgresql start 2>/dev/null
+        elif command -v systemctl &> /dev/null; then
+            sudo systemctl start postgresql 2>/dev/null
+        fi
+    fi
+fi
+export PATH="$PATH:/snap/bin"
+export DISPLAY=:0
+export DISPLAY=:0
+export WAYLAND_DISPLAY=""
+export XDG_RUNTIME_DIR="/tmp"
+
+# Created by `pipx` on 2025-07-27 15:31:25
+export PATH="$PATH:/home/deegan/.local/bin"
+
+# Aliases for opening editors
+alias code="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code/bin/code"
+alias code-insiders="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code\ Insiders/bin/code-insiders"
+alias cursor="/mnt/c/Users/david/AppData/Local/Programs/cursor/resources/app/bin/code"
+
+# Claude aliases
+alias cc="claude --dangerously-skip-permissions"
+alias ccc="claude --dangerously-skip-permissions --continue"
+
+# Script shortcuts for Advice Innovation Hub
+alias sshs='ssh -i ~/.ssh/aih-staging-key.pem ec2-user@16.176.107.106' # Staging
+alias sshp='ssh -i ~/.ssh/aih-production-key.pem ec2-user@54.66.154.73' # Production
+alias ds='kamal deploy -d staging'
+alias dp='kamal deploy -d production'
+alias stops='/workspaces/advice-innovation-hub/scripts/aws/stop-staging.sh'
+alias starts='/workspaces/advice-innovation-hub/scripts/aws/start-staging.sh'
+alias statuss='/workspaces/advice-innovation-hub/scripts/aws/status-staging.sh'
+alias logsp='kamal app logs -d production -f'
+alias logss='kamal app logs -d staging -f'
+alias logs50p='kamal app logs -d production --lines 50'
+alias logs50s='kamal app logs -d staging --lines 50'
+alias logs100p='kamal app logs -d production --lines 100'
+alias logs100s='kamal app logs -d staging --lines 100'

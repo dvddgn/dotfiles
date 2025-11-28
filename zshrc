@@ -102,10 +102,17 @@ export XDG_RUNTIME_DIR="/tmp"
 # Created by `pipx` on 2025-07-27 15:31:25
 export PATH="$PATH:/home/deegan/.local/bin"
 
-# Aliases for opening editors
-alias code="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code/bin/code"
-alias code-insiders="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code\ Insiders/bin/code-insiders"
-alias cursor="/mnt/c/Users/david/AppData/Local/Programs/cursor/resources/app/bin/code"
+# OS-specific editor aliases
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS - VS Code CLI is installed via "Shell Command: Install 'code' command in PATH"
+    # No aliases needed - the native `code` command will work
+    :
+elif [[ -n "$WSL_DISTRO_NAME" ]]; then
+    # WSL - use Windows paths
+    alias code="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code/bin/code"
+    alias code-insiders="/mnt/c/Users/david/AppData/Local/Programs/Microsoft\ VS\ Code\ Insiders/bin/code-insiders"
+    alias cursor="/mnt/c/Users/david/AppData/Local/Programs/cursor/resources/app/bin/code"
+fi
 
 # Claude aliases
 alias cc="claude --dangerously-skip-permissions"

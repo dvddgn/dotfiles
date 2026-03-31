@@ -117,6 +117,7 @@ fi
 # Claude aliases
 alias cc="claude --dangerously-skip-permissions"
 alias ccc="claude --dangerously-skip-permissions --continue"
+alias cx="codex --dangerously-bypass-approvals-and-sandbox"
 
 # Script shortcuts for Advice Innovation Hub
 alias sshs='ssh -i ~/.ssh/aih-staging-key.pem ec2-user@16.176.107.106' # Staging
@@ -132,3 +133,10 @@ alias logs50p='kamal app logs -d production --lines 50'
 alias logs50s='kamal app logs -d staging --lines 50'
 alias logs100p='kamal app logs -d production --lines 100'
 alias logs100s='kamal app logs -d staging --lines 100'
+
+alias todo='cd ~/.openclaw/workspace && python3 scripts/tasks-overview.py'
+
+. "$HOME/.local/bin/env"
+export PATH="$HOME/Library/Python/3.14/bin:$PATH"
+export PATH="$HOME/bin:$PATH"
+alias fav="$HOME/.openclaw/workspace/scripts/fav"

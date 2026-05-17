@@ -16,11 +16,45 @@
   "containers.commands.attach": "${containerCommand} exec -it ${containerId} ${shellCommand}",
   "diffEditor.ignoreTrimWhitespace": false,
   "remote.autoForwardPortsSource": "hybrid",
-  "gitlens.views.commitDetails.files.layout": "tree",
   "githubLocalActions.dockerDesktopPath": "C:/Program Files/Docker/Docker/Docker Desktop.exe",
   "gitlens.ai.model": "vscode",
   "gitlens.ai.vscode.model": "copilot:gpt-4.1",
   "githubPullRequests.fileListLayout": "tree",
   "terminal.integrated.scrollback": 10000,
-  "explorer.compactFolders": false
+  "explorer.compactFolders": false,
+  "claudeCode.preferredLocation": "panel",
+  "gitlens.views.searchAndCompare.files.layout": "tree",
+  "gitlens.views.commitDetails.files.layout": "tree",
+  "gitlens.views.scm.grouped.views": {
+    "commits": true,
+    "branches": true,
+    "remotes": true,
+    "stashes": true,
+    "tags": true,
+    "worktrees": true,
+    "contributors": true,
+    "fileHistory": false,
+    "repositories": true,
+    "searchAndCompare": false,
+    "launchpad": false
+  },
+  "markdown.preview.doubleClickToSwitchToEditor": false,
+  "markdown.preview.scrollEditorWithPreview": false,
+  "markdown.preview.scrollPreviewWithEditor": false,
+  "markdown.preview.theme": "light",
+  "markdown-preview-github-styles.colorTheme": "light",
+  "markdown.preview.fontSize": 8,
+  "gitlens.views.commits.files.layout": "tree",
+  "github.copilot.enable": {
+    "*": false,
+    "plaintext": false,
+    "markdown": false,
+    "scminput": false
+  },
+  "workbench.editorAssociations": {
+    "*.copilotmd": "vscode.markdown.preview.editor",
+    "*.md": "vscode.markdown.preview.editor",
+    "*.docx": "cweijan.officeViewer"
+  },
+  "chat.viewSessions.orientation": "stacked"
 }

@@ -119,6 +119,48 @@ alias cc="claude --dangerously-skip-permissions"
 alias ccc="claude --dangerously-skip-permissions --continue"
 alias cx="codex --dangerously-bypass-approvals-and-sandbox"
 
+# Open a project in tmux with Claude Code + context
+alias op="~/code/dvddgn/workspace-app/ai-builder/scripts/open-project.sh"
+
+# List all named Claude Code sessions across all folders
+alias sess="~/code/dvddgn/workspace-app/ai-builder/scripts/sessions.sh"
+
+# Create or attach a tmux session — use to spin up isolated tmux per VS Code terminal
+# cct                → auto-named session (sess-HHMMSS)
+# cct my-feature     → create or attach to "my-feature"
+cct() {
+  local name="${1:-sess-$(date +%H%M%S)}"
+  tmux new-session -A -s "$name"
+}
+
+# Open VS Code workspace by session name
+vs() {
+  local base="$HOME/code/dvddgn"
+  case "$1" in
+    aih)  code "$base/advice-innovation-hub/aih.code-workspace" ;;
+    c[1-5]) code "$base/advice-innovation-hub-clone-${1#c}/${1}.code-workspace" ;;
+    m1|m2) code "$base/advice-innovation-hub-${1}/${1}.code-workspace" ;;
+    ws)   code "$base/workspace-app/ws.code-workspace" ;;
+    claw) code "$HOME/.openclaw/workspace/claw.code-workspace" ;;
+    *)    echo "Usage: vs <aih|c1-c5|m1|m2|ws|claw>" ;;
+  esac
+}
+
+# Dev services (start/stop/restart rails/sidekiq/vite in tmux)
+# srv m1              → restart all
+# srv m1 rails        → restart just rails
+# srv stop m1         → stop all
+# srv stop m1 vite    → stop just vite
+srv() {
+  if [[ "$1" == "stop" ]]; then
+    ~/code/dvddgn/services.sh "${2:?Usage: srv stop <session> [service]}" stop "${3:-all}"
+  elif [[ "$1" == "start" ]]; then
+    ~/code/dvddgn/services.sh "${2:?Usage: srv start <session> [service]}" start "${3:-all}"
+  else
+    ~/code/dvddgn/services.sh "${1:?Usage: srv <session> [service]}" restart "${2:-all}"
+  fi
+}
+
 # Script shortcuts for Advice Innovation Hub
 alias sshs='ssh -i ~/.ssh/aih-staging-key.pem ec2-user@16.176.107.106' # Staging
 alias sshp='ssh -i ~/.ssh/aih-production-key.pem ec2-user@54.66.154.73' # Production
@@ -140,3 +182,6 @@ alias todo='cd ~/.openclaw/workspace && python3 scripts/tasks-overview.py'
 export PATH="$HOME/Library/Python/3.14/bin:$PATH"
 export PATH="$HOME/bin:$PATH"
 alias fav="$HOME/.openclaw/workspace/scripts/fav"
+
+# Claude Code Project — start/resume sessions with project context
+alias ccp="bash ~/code/dvddgn/workspace-app/ai-builder/scripts/ccp.sh"

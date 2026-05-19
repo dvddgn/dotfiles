@@ -119,6 +119,12 @@ alias cc="claude --dangerously-skip-permissions"
 alias ccc="claude --dangerously-skip-permissions --continue"
 alias cx="codex --dangerously-bypass-approvals-and-sandbox"
 
+# Start tmux sessions + open VS Code (per repo)
+# up m1                → start m1 session + open VS Code
+# up m1 m2 ws          → multiple
+# up m1 --no-code      → tmux only, no VS Code
+alias up="~/code/dvddgn/startup.sh"
+
 # Open a project in tmux with Claude Code + context
 alias op="~/code/dvddgn/workspace-app/ai-builder/scripts/open-project.sh"
 

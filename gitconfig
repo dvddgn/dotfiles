@@ -59,7 +59,7 @@
   rebase = false
 
 [init]
-  defaultBranch = master
+	defaultBranch = main
 [user]
 	email = daviddeegan@gmail.com
 	name = David Deegan

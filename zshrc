@@ -145,10 +145,10 @@ vs() {
   case "$1" in
     aih)  code "$base/advice-innovation-hub/aih.code-workspace" ;;
     c[1-5]) code "$base/advice-innovation-hub-clone-${1#c}/${1}.code-workspace" ;;
-    m1|m2) code "$base/advice-innovation-hub-${1}/${1}.code-workspace" ;;
+    m[1-5]) code "$base/advice-innovation-hub-${1}/${1}.code-workspace" ;;
     ws)   code "$base/workspace-app/ws.code-workspace" ;;
     claw) code "$HOME/.openclaw/workspace/claw.code-workspace" ;;
-    *)    echo "Usage: vs <aih|c1-c5|m1|m2|ws|claw>" ;;
+    *)    echo "Usage: vs <aih|c1-c5|m1-m5|ws|claw>" ;;
   esac
 }
 

@@ -149,16 +149,20 @@ cmd_new() {
     echo "  rails starting on port $port"
   fi
 
+  # The attach command goes last and unlabelled, on its own line, because it is
+  # the one line DD copies. Everything above it is reference.
   cat <<EOF
 
 Slot ready.
   path      $wt
   branch    $branch
-  session   tmux attach -t $session
   url       http://localhost:$port
   agent     tmux send-keys -t $session:claude 'ccp <project-slug>' C-m
   sidekiq   window is idle on purpose — only one Sidekiq may run across all clones
   vite      window is idle too — it binds 3036 exclusively; assets autoBuild without it
+
+Attach:
+  tmux attach -t $session
 EOF
 }
 

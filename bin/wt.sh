@@ -193,12 +193,16 @@ cmd_new() {
   tmux new-window -d -t "$session" -n shell   -c "$wt"
   echo "  tmux session $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
 
-  local port="see 'srv $session rails'"
+  local urlline
   if $start_rails; then
     "$SERVICES" "$session" start rails --keep-others >/dev/null 2>&1
     sleep 1
+    local port
     port=$(cat "$wt.port" 2>/dev/null || echo "?")
     echo "  rails starting on port $port"
+    urlline="  url       http://localhost:$port"
+  else
+    urlline="  url       no server — start one with: srv $session rails --keep-others"
   fi
 
   # The attach command goes last and unlabelled, on its own line, because it is
@@ -208,7 +212,7 @@ cmd_new() {
 Slot ready.
   path      $wt
   branch    $branch
-  url       http://localhost:$port
+$urlline
   agent     tmux send-keys -t $session:claude 'ccp <project-slug>' C-m
   sidekiq   window is idle on purpose — only one Sidekiq may run across all clones
   vite      window is idle too — it binds 3036 exclusively; assets autoBuild without it

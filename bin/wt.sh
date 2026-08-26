@@ -8,6 +8,7 @@
 # Usage:
 #   wt new    <slug> [branch] [--claudes N] [--no-rails]
 #   wt agent  <slug> [window-name]
+#   wt restore [slug] [--rails]        # after a reboot: rebuild the tmux sessions
 #   wt done   <slug> [--force]
 #   wt rename <old-slug> <new-slug> [new-branch]
 #   wt rm     <slug> [--force]
@@ -107,6 +108,23 @@ print("  workspace entry removed" if len(ws["folders"]) < before else "  (no wor
 PY
 }
 
+# ---- windows ------------------------------------------------------------------
+# The session shape, in one place, so `new` and `restore` cannot drift apart. The
+# names are load-bearing: services.sh drives windows called rails/sidekiq/vite,
+# and bin/sidekiq refuses to run unless the session has one named sidekiq.
+make_windows() {
+  local session=$1 wt=$2 claudes=${3:-1} i
+  tmux new-session -d -s "$session" -c "$wt" -n claude
+  for ((i = 2; i <= claudes; i++)); do
+    tmux new-window -d -t "$session" -n "claude$i" -c "$wt"
+  done
+  tmux new-window -d -t "$session" -n rails   -c "$wt"
+  tmux new-window -d -t "$session" -n sidekiq -c "$wt"
+  tmux new-window -d -t "$session" -n vite    -c "$wt"
+  tmux new-window -d -t "$session" -n shell   -c "$wt"
+  echo "  tmux session $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
+}
+
 # ---- memory -------------------------------------------------------------------
 # Claude Code keys its memory directory off the working directory's path, so a new
 # slot starts with an empty one and an agent there loses every accumulated lesson.
@@ -182,17 +200,7 @@ cmd_new() {
   ws_add "$slug" "$branch"
   link_memory "$wt"
 
-  # Every window a slot ends up needing, created up front rather than on demand.
-  tmux new-session -d -s "$session" -c "$wt" -n claude
-  local i
-  for ((i = 2; i <= claudes; i++)); do
-    tmux new-window -d -t "$session" -n "claude$i" -c "$wt"
-  done
-  tmux new-window -d -t "$session" -n rails   -c "$wt"
-  tmux new-window -d -t "$session" -n sidekiq -c "$wt"
-  tmux new-window -d -t "$session" -n vite    -c "$wt"
-  tmux new-window -d -t "$session" -n shell   -c "$wt"
-  echo "  tmux session $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
+  make_windows "$session" "$wt" "$claudes"
 
   local urlline
   if $start_rails; then
@@ -455,6 +463,58 @@ Attach:
 EOF
 }
 
+# ---- restore ------------------------------------------------------------------
+# tmux does not survive a reboot - there is no resurrect/continuum here, so the
+# server dies with every session in it. The worktrees do survive, and so do the
+# Claude transcripts (they live in ~/.claude/projects, not in the worktree). So a
+# restart loses the sessions and nothing else, and this rebuilds them.
+#
+# It does NOT resume the agents. Restarting eight of them unasked is expensive and
+# usually wrong; it prints the command for each instead, newest session first.
+cmd_restore() {
+  local start_rails=false slug_filter=""
+  while (($#)); do
+    case "$1" in
+      --rails) start_rails=true; shift ;;
+      -*) die "unknown flag $1" ;;
+      *) slug_filter=$1; shift ;;
+    esac
+  done
+
+  local wt slug session found=0
+  shopt -s nullglob
+  for wt in "$BASE"/aih-wt-*/; do
+    wt="${wt%/}"
+    slug="${wt##*/aih-wt-}"
+    [[ -n "$slug_filter" && "$slug" != "$slug_filter" ]] && continue
+    found=$((found + 1))
+    session="wt-$slug"
+
+    if tmux has-session -t "$session" 2>/dev/null; then
+      echo "  $slug: session already up"
+    else
+      make_windows "$session" "$wt" 1
+      link_memory "$wt" >/dev/null
+      $start_rails && "$SERVICES" "$session" start rails --keep-others >/dev/null 2>&1
+    fi
+
+    # The transcript directory is the working directory path with / replaced by -.
+    local proj latest
+    proj="$HOME/.claude/projects/$(echo "$wt" | sed 's|/|-|g')"
+    latest=$(ls -t "$proj"/*.jsonl 2>/dev/null | head -1)
+    if [[ -n "$latest" ]]; then
+      echo "     resume: cd $wt && claude --resume $(basename "$latest" .jsonl)"
+    fi
+  done
+
+  [[ "$found" == "0" ]] && { echo "No slots found."; return 0; }
+  cat <<EOF
+
+$found slot(s). Sessions rebuilt; agents are not resumed - run a resume line above,
+or start fresh with: ccp <project-slug> --opus "<brief>"
+EOF
+}
+
 # ---- ls -----------------------------------------------------------------------
 cmd_ls() {
   local wt slug branch port session
@@ -473,10 +533,11 @@ cmd_ls() {
 case "${1:-}" in
   new)    shift; cmd_new "$@" ;;
   agent)  shift; cmd_agent "$@" ;;
+  restore) shift; cmd_restore "$@" ;;
   done)   shift; cmd_done "$@" ;;
   rename) shift; cmd_rename "$@" ;;
   rm)     shift; cmd_rm "$@" ;;
   ls)     shift; cmd_ls "$@" ;;
   ""|-h|--help) usage ;;
-  *) die "unknown command '$1' (use new, agent, done, rename, rm or ls)" ;;
+  *) die "unknown command '$1' (use new, agent, restore, done, rename, rm or ls)" ;;
 esac

@@ -31,6 +31,19 @@ for name in aliases gitconfig irbrc pryrc rspec zprofile zshrc; do
   fi
 done
 
+# Symlink the dev scripts in `bin/` back into ~/code/dvddgn, where the shell
+# aliases and the scripts themselves reference them by that path. Tracking them
+# here is what backs them up; the symlinks are what keep every existing
+# reference working.
+DEV_BIN="$HOME/code/dvddgn"
+if [ -d "$DEV_BIN" ]; then
+  for name in bin/*.sh; do
+    target="$DEV_BIN/$(basename $name)"
+    backup $target
+    symlink $PWD/$name $target
+  done
+fi
+
 # Install zsh-syntax-highlighting plugin
 CURRENT_DIR=`pwd`
 ZSH_PLUGINS_DIR="$HOME/.oh-my-zsh/custom/plugins"

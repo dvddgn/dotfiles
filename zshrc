@@ -146,11 +146,17 @@ vs() {
     aih)  code "$base/advice-innovation-hub/aih.code-workspace" ;;
     c[1-5]) code "$base/advice-innovation-hub-clone-${1#c}/${1}.code-workspace" ;;
     m[1-5]) code "$base/advice-innovation-hub-${1}/${1}.code-workspace" ;;
+    wt)   code "$base/aih-worktrees.code-workspace" ;;
     ws)   code "$base/workspace-app/ws.code-workspace" ;;
+    hre)  code "$base/horizons-real-estate/hre.code-workspace" ;;
     claw) code "$HOME/.openclaw/workspace/claw.code-workspace" ;;
-    *)    echo "Usage: vs <aih|c1-c5|m1-m5|ws|claw>" ;;
+    *)    echo "Usage: vs <aih|c1-c5|m1-m5|wt|ws|hre|claw>" ;;
   esac
 }
+
+# Worktree slots (worktree + .env + node_modules + workspace entry + tmux windows)
+# wt new <slug> [branch] [--claudes N] [--no-rails] | wt rm <slug> | wt ls
+alias wt="~/code/dvddgn/wt.sh"
 
 # Dev services (start/stop/restart rails/sidekiq/vite in tmux)
 # srv m1              → restart all
@@ -158,12 +164,21 @@ vs() {
 # srv stop m1         → stop all
 # srv stop m1 vite    → stop just vite
 srv() {
+  # Trailing flags (e.g. --keep-others) are passed through to services.sh.
   if [[ "$1" == "stop" ]]; then
-    ~/code/dvddgn/services.sh "${2:?Usage: srv stop <session> [service]}" stop "${3:-all}"
+    local sess="${2:?Usage: srv stop <session> [service] [--keep-others]}"
+    local svc="${3:-all}"; shift 3 2>/dev/null
+    ~/code/dvddgn/services.sh "$sess" stop "$svc" "$@"
   elif [[ "$1" == "start" ]]; then
-    ~/code/dvddgn/services.sh "${2:?Usage: srv start <session> [service]}" start "${3:-all}"
+    local sess="${2:?Usage: srv start <session> [service] [--keep-others]}"
+    local svc="${3:-all}"; shift 3 2>/dev/null
+    ~/code/dvddgn/services.sh "$sess" start "$svc" "$@"
   else
-    ~/code/dvddgn/services.sh "${1:?Usage: srv <session> [service]}" restart "${2:-all}"
+    local sess="${1:?Usage: srv <session> [service] [--keep-others]}"
+    local svc="${2:-all}"
+    # Handle the case where $2 is a flag, not a service name
+    if [[ "$svc" == --* ]]; then svc="all"; shift 1; else shift 2 2>/dev/null; fi
+    ~/code/dvddgn/services.sh "$sess" restart "$svc" "$@"
   fi
 }
 

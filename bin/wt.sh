@@ -6,9 +6,10 @@
 # always ends up needing — so none of it is assembled a step at a time later.
 #
 # Usage:
-#   wt new  <slug> [branch] [--claudes N] [--no-rails]
-#   wt done <slug> [--force]
-#   wt rm   <slug> [--force]
+#   wt new    <slug> [branch] [--claudes N] [--no-rails]
+#   wt done   <slug> [--force]
+#   wt rename <old-slug> <new-slug> [new-branch]
+#   wt rm     <slug> [--force]
 #   wt ls
 #
 # Examples:
@@ -43,7 +44,11 @@
 set -uo pipefail
 
 BASE="$HOME/code/dvddgn"
-PARENT="$BASE/advice-innovation-hub-m1"
+# The clone the worktrees hang off. Every slot's .git file points into
+# $PARENT/.git/worktrees/, so this clone is load-bearing: it must keep existing,
+# and its own checkout should stay on main and idle. Override for a different
+# clone or repo - existing slots stay bound to whichever parent created them.
+PARENT="${AIH_PARENT:-$BASE/advice-innovation-hub-m1}"
 WSFILE="$BASE/aih-worktrees.code-workspace"
 SERVICES="$BASE/services.sh"
 
@@ -307,6 +312,70 @@ cmd_done() {
   echo "Closed out. Nothing left for '$slug'."
 }
 
+# ---- rename -------------------------------------------------------------------
+# Exploration starts before a project exists, so a slot is often named for an idea
+# and then turns into something. This moves the directory, branch, tmux session,
+# port file and workspace entry together, so none of them is left describing the
+# old thing.
+cmd_rename() {
+  local old="" new="" branch=""
+  while (($#)); do
+    case "$1" in
+      -*) die "unknown flag $1" ;;
+      *) if [[ -z "$old" ]]; then old=$1; elif [[ -z "$new" ]]; then new=$1
+         elif [[ -z "$branch" ]]; then branch=$1; else die "unexpected argument $1"; fi; shift ;;
+    esac
+  done
+  [[ -n "$old" && -n "$new" ]] || die "usage: wt rename <old-slug> <new-slug> [new-branch]"
+  [[ "$new" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "slug must be lowercase letters, digits and hyphens: '$new'"
+
+  local owt="$BASE/aih-wt-$old" nwt="$BASE/aih-wt-$new"
+  ACTION=rename assert_outside "$owt"
+  [[ -d "$owt" ]] || die "no worktree at $owt"
+  [[ -e "$nwt" ]] && die "$nwt already exists"
+  tmux has-session -t "wt-$new" 2>/dev/null && die "tmux session wt-$new already exists"
+
+  echo "Renaming slot '$old' -> '$new'"
+
+  # git worktree move keeps the administrative link intact. The directory keeps its
+  # inode, so a shell sitting inside it survives - its `pwd` reads stale, but the
+  # directory is still there. Unlike removal, which leaves it pointing at nothing.
+  git -C "$PARENT" worktree move "$owt" "$nwt" || die "worktree move failed"
+  echo "  directory moved"
+
+  if [[ -n "$branch" ]]; then
+    local current
+    current=$(git -C "$nwt" branch --show-current)
+    if [[ "$current" != "$branch" ]]; then
+      git -C "$PARENT" branch -m "$current" "$branch" && echo "  branch $current -> $branch"
+    fi
+  fi
+  local finalbranch
+  finalbranch=$(git -C "$nwt" branch --show-current)
+
+  tmux has-session -t "wt-$old" 2>/dev/null && {
+    tmux rename-session -t "wt-$old" "wt-$new" && echo "  tmux session wt-$old -> wt-$new"
+  }
+
+  [[ -f "$owt.port" ]] && mv "$owt.port" "$nwt.port" && echo "  port file moved"
+
+  ws_remove "$old" >/dev/null
+  ws_add "$new" "$finalbranch"
+
+  cat <<EOF
+
+Renamed.
+  path      $nwt
+  branch    $finalbranch
+
+A session already running inside the slot keeps working - the directory kept its
+inode, so only its \`pwd\` reads stale. Tell it to \`cd $nwt\` when convenient.
+
+Attach:
+  tmux attach -t wt-$new
+EOF
+}
+
 # ---- ls -----------------------------------------------------------------------
 cmd_ls() {
   local wt slug branch port session
@@ -323,10 +392,11 @@ cmd_ls() {
 }
 
 case "${1:-}" in
-  new)  shift; cmd_new "$@" ;;
-  done) shift; cmd_done "$@" ;;
-  rm)   shift; cmd_rm "$@" ;;
-  ls)   shift; cmd_ls "$@" ;;
+  new)    shift; cmd_new "$@" ;;
+  done)   shift; cmd_done "$@" ;;
+  rename) shift; cmd_rename "$@" ;;
+  rm)     shift; cmd_rm "$@" ;;
+  ls)     shift; cmd_ls "$@" ;;
   ""|-h|--help) usage ;;
-  *) die "unknown command '$1' (use new, done, rm or ls)" ;;
+  *) die "unknown command '$1' (use new, done, rename, rm or ls)" ;;
 esac

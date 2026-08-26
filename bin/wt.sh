@@ -7,6 +7,7 @@
 #
 # Usage:
 #   wt new    <slug> [branch] [--claudes N] [--no-rails]
+#   wt agent  <slug> [window-name]
 #   wt done   <slug> [--force]
 #   wt rename <old-slug> <new-slug> [new-branch]
 #   wt rm     <slug> [--force]
@@ -338,6 +339,58 @@ cmd_done() {
   echo "Closed out. Nothing left for '$slug'."
 }
 
+# ---- agent --------------------------------------------------------------------
+# Several agents can share one slot as long as none of them edits files - scoping
+# and review sessions read code and write to the workspace, so they conflict over
+# nothing. This adds another correctly named and correctly placed agent window.
+cmd_agent() {
+  local slug="" name=""
+  while (($#)); do
+    case "$1" in
+      -*) die "unknown flag $1" ;;
+      *) if [[ -z "$slug" ]]; then slug=$1; elif [[ -z "$name" ]]; then name=$1; else die "unexpected argument $1"; fi; shift ;;
+    esac
+  done
+  [[ -n "$slug" ]] || die "usage: wt agent <slug> [window-name]"
+
+  local session="wt-$slug"
+  tmux has-session -t "$session" 2>/dev/null || die "no tmux session $session"
+
+  # Default to the next free claude/claudeN. A name is better when the windows
+  # hold different subjects - three windows called claude2/3/4 tell you nothing.
+  if [[ -z "$name" ]]; then
+    local n=2
+    while tmux list-windows -t "$session" -F "#{window_name}" | grep -qx "claude$n"; do n=$((n + 1)); done
+    name="claude$n"
+  fi
+  [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "window name must be lowercase letters, digits and hyphens"
+  tmux list-windows -t "$session" -F "#{window_name}" | grep -qx "$name" && die "window $name already exists in $session"
+
+  local wt="$BASE/aih-wt-$slug"
+  [[ -d "$wt" ]] || die "no worktree at $wt"
+
+  # Insert after the last agent window so the agents stay together, ahead of the
+  # service windows. tmux -a inserts after the target index and renumbers.
+  local after
+  after=$(tmux list-windows -t "$session" -F "#{window_index} #{window_name}" \
+          | awk '$2 ~ /^claude/ {i=$1} END {print i+0}')
+  if [[ "$after" -gt 0 ]]; then
+    tmux new-window -d -a -t "${session}:${after}" -n "$name" -c "$wt"
+  else
+    tmux new-window -d -t "$session" -n "$name" -c "$wt"
+  fi
+
+  echo "Added $name to $session"
+  tmux list-windows -t "$session" -F "  #{window_index}: #{window_name}"
+  cat <<EOF
+
+  agent   tmux send-keys -t ${session}:${name} 'ccp <project-slug>' C-m
+
+Attach:
+  tmux attach -t $session
+EOF
+}
+
 # ---- rename -------------------------------------------------------------------
 # Exploration starts before a project exists, so a slot is often named for an idea
 # and then turns into something. This moves the directory, branch, tmux session,
@@ -419,10 +472,11 @@ cmd_ls() {
 
 case "${1:-}" in
   new)    shift; cmd_new "$@" ;;
+  agent)  shift; cmd_agent "$@" ;;
   done)   shift; cmd_done "$@" ;;
   rename) shift; cmd_rename "$@" ;;
   rm)     shift; cmd_rm "$@" ;;
   ls)     shift; cmd_ls "$@" ;;
   ""|-h|--help) usage ;;
-  *) die "unknown command '$1' (use new, done, rename, rm or ls)" ;;
+  *) die "unknown command '$1' (use new, agent, done, rename, rm or ls)" ;;
 esac

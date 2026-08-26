@@ -13,6 +13,8 @@
 #   cs -g email              # only those whose opening line matches
 #   cs r <n|session-id>      # resume that one (index from the listing, or an id)
 #   cs r <n> --opus          # resume with a model override
+#   cs snapshot              # record every live Claude tmux session (do this now)
+#   cs restore               # after a reboot: rebuild those sessions
 #
 # Transcripts live under ~/.claude/projects and outlive the directory itself, so a
 # session whose worktree or terminal is gone is still here and still resumable.
@@ -71,7 +73,66 @@ with open(os.path.join(proj, ".cs-index"), "w") as fh:
 PY
 }
 
+# ---- snapshot / restore -------------------------------------------------------
+# tmux does not survive a reboot here (no resurrect/continuum), so a restart takes
+# every session with it. The transcripts survive, and each running Claude shows the
+# name it was launched with - which is what `--resume` takes. Recording the pair
+# (tmux session, working directory, Claude session name) is therefore enough to
+# rebuild the lot.
+#
+# The map lives outside any repo on purpose: these names describe personal
+# subjects, and dotfiles is a public repository.
+MAP="$HOME/.claude/tmux-session-map.tsv"
+
+cmd_snapshot() {
+  local n=0
+  : > "$MAP.tmp"
+  while read -r sess; do
+    local cwd title cmd
+    cwd=$(tmux display-message -t "$sess" -p '#{pane_current_path}' 2>/dev/null) || continue
+    cmd=$(tmux display-message -t "$sess" -p '#{pane_current_command}' 2>/dev/null)
+    # An idle shell has nothing to resume; only panes running Claude do.
+    [[ "$cmd" == "zsh" || "$cmd" == "bash" ]] && continue
+    # The status block prints the session name on the line above "… · <model>".
+    title=$(tmux capture-pane -t "$sess" -p 2>/dev/null | grep -v '^$' \
+            | grep -B1 -E '·[[:space:]]+(Opus|Sonnet|Haiku|Fable)' | head -1 \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]\{2,\}.*$//;s/[[:space:]]*$//')
+    [[ -z "$title" ]] && title="(unnamed)"
+    printf '%s\t%s\t%s\n' "$sess" "$cwd" "$title" >> "$MAP.tmp"
+    n=$((n + 1))
+  done < <(tmux ls -F '#{session_name}' 2>/dev/null)
+  mv "$MAP.tmp" "$MAP"
+  echo "Recorded $n live Claude session(s) -> $MAP"
+  column -t -s $'\t' "$MAP" | sed 's/^/  /' | head -60
+}
+
+cmd_restore_tmux() {
+  [[ -f "$MAP" ]] || die "no snapshot at $MAP - run 'cs snapshot' while the sessions are up"
+  local rebuilt=0 skipped=0
+  while IFS=$'\t' read -r sess cwd title; do
+    [[ -z "$sess" ]] && continue
+    if tmux has-session -t "$sess" 2>/dev/null; then
+      skipped=$((skipped + 1)); continue
+    fi
+    [[ -d "$cwd" ]] || { echo "  $sess: directory gone ($cwd)"; continue; }
+    tmux new-session -d -s "$sess" -c "$cwd"
+    rebuilt=$((rebuilt + 1))
+    # A kebab-case title is a name passed to `claude -n`, so --resume takes it.
+    # Anything with spaces is a generated summary; fall back to finding it by text.
+    if [[ "$title" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+      echo "  $sess: rebuilt — resume: tmux send-keys -t $sess 'claude --resume $title' C-m"
+    else
+      echo "  $sess: rebuilt — unnamed; find it with: cd $cwd && cs -g '${title%% *}'"
+    fi
+  done < "$MAP"
+  echo
+  echo "$rebuilt rebuilt, $skipped already up. Agents are not resumed - the lines above do that."
+}
+
 # ---- resume -------------------------------------------------------------------
+[[ "${1:-}" == "snapshot" ]] && { cmd_snapshot; exit 0; }
+[[ "${1:-}" == "restore"  ]] && { cmd_restore_tmux; exit 0; }
+
 if [[ "${1:-}" == "r" || "${1:-}" == "resume" ]]; then
   shift
   TARGET="${1:?usage: cs r <index-or-session-id> [--model X|--opus|--sonnet]}"; shift

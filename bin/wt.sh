@@ -135,7 +135,8 @@ CANONICAL_MEMORY="$HOME/.claude/projects/-Users-daviddeegan-code-dvddgn-advice-i
 link_memory() {
   local wt=$1
   [[ -d "$CANONICAL_MEMORY" ]] || { echo "  (no canonical memory store — skipping)"; return 0; }
-  local proj="$HOME/.claude/projects/$(echo "$wt" | sed 's|/|-|g')"
+  # Dots are encoded as dashes too, same as separators.
+  local proj="$HOME/.claude/projects/$(echo "$wt" | sed 's|[/.]|-|g')"
   mkdir -p "$proj"
   if [[ -e "$proj/memory" && ! -L "$proj/memory" ]]; then
     echo "  memory: left alone — $proj/memory already exists as a real directory"

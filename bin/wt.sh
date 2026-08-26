@@ -106,6 +106,27 @@ print("  workspace entry removed" if len(ws["folders"]) < before else "  (no wor
 PY
 }
 
+# ---- memory -------------------------------------------------------------------
+# Claude Code keys its memory directory off the working directory's path, so a new
+# slot starts with an empty one and an agent there loses every accumulated lesson.
+# The clones already solve this by symlinking to a single canonical store keyed on
+# the base clone; slots join the same convention rather than inventing another.
+CANONICAL_MEMORY="$HOME/.claude/projects/-Users-daviddeegan-code-dvddgn-advice-innovation-hub/memory"
+
+link_memory() {
+  local wt=$1
+  [[ -d "$CANONICAL_MEMORY" ]] || { echo "  (no canonical memory store — skipping)"; return 0; }
+  local proj="$HOME/.claude/projects/$(echo "$wt" | sed 's|/|-|g')"
+  mkdir -p "$proj"
+  if [[ -e "$proj/memory" && ! -L "$proj/memory" ]]; then
+    echo "  memory: left alone — $proj/memory already exists as a real directory"
+    return 0
+  fi
+  [[ -L "$proj/memory" ]] && rm "$proj/memory"
+  ln -s "$CANONICAL_MEMORY" "$proj/memory" \
+    && echo "  memory linked ($(ls "$CANONICAL_MEMORY"/*.md 2>/dev/null | wc -l | tr -d ' ') entries)"
+}
+
 # ---- new ----------------------------------------------------------------------
 cmd_new() {
   local slug="" branch="" claudes=1 start_rails=true
@@ -158,6 +179,7 @@ cmd_new() {
   fi
 
   ws_add "$slug" "$branch"
+  link_memory "$wt"
 
   # Every window a slot ends up needing, created up front rather than on demand.
   tmux new-session -d -s "$session" -c "$wt" -n claude

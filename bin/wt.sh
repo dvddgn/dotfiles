@@ -6,15 +6,26 @@
 # always ends up needing — so none of it is assembled a step at a time later.
 #
 # Usage:
-#   wt new <slug> [branch] [--claudes N] [--no-rails]
-#   wt rm  <slug> [--force]
+#   wt new  <slug> [branch] [--claudes N] [--no-rails]
+#   wt done <slug> [--force]
+#   wt rm   <slug> [--force]
 #   wt ls
 #
 # Examples:
 #   wt new dropzone                                  # branch feature/dropzone off origin/main
 #   wt new dropzone feature/property-profile-upload-ux
 #   wt new review-79 feature/profile-79-review --claudes 2
-#   wt rm  dropzone
+#   wt done dropzone                                 # the whole close-out, once the PR is merged
+#   wt rm  dropzone                                  # teardown alone, merged or not
+#
+# `done` is the one to reach for after a merge: it refuses unless the branch is
+# actually in origin/main, then deletes the local and remote branch and tears the
+# slot down. `rm` skips the merge check, for a slot being abandoned.
+#
+# NEITHER can be run from inside the slot. git will remove a worktree from within
+# itself quite happily, leaving every shell in that session in a directory that no
+# longer exists - `fatal: Unable to read current working directory` on every command
+# afterwards, blaming git rather than naming the cause. Both refuse instead.
 #
 # Windows created in session wt-<slug>, in this order:
 #   claude   the agent (ccp <project-slug> to launch one with project context)
@@ -39,8 +50,22 @@ SERVICES="$BASE/services.sh"
 die() { echo "Error: $*" >&2; exit 1; }
 
 usage() {
-  sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
+}
+
+# Removing the worktree you are standing in succeeds, and leaves the shell in a
+# directory that no longer exists. Refuse, and say where to run it from.
+assert_outside() {
+  local wt=$1 here real
+  here=$(pwd -P 2>/dev/null) || return 0   # already in a phantom dir; nothing to protect
+  real=$(cd "$wt" 2>/dev/null && pwd -P) || real="$wt"
+  if [[ "$here" == "$real" || "$here" == "$real"/* ]]; then
+    echo "Error: you are inside $real" >&2
+    echo "       A slot cannot tear itself down - the directory would vanish under this shell." >&2
+    echo "       Run it from somewhere else, e.g.:  cd $PARENT && wt ${ACTION:-rm} $(basename "$wt" | sed 's/^aih-wt-//')" >&2
+    exit 1
+  fi
 }
 
 # ---- workspace file -----------------------------------------------------------
@@ -179,6 +204,7 @@ cmd_rm() {
   [[ -n "$slug" ]] || usage 1
 
   local wt="$BASE/aih-wt-$slug" session="wt-$slug"
+  ACTION=rm assert_outside "$wt"
   echo "Removing slot '$slug'"
 
   if tmux has-session -t "$session" 2>/dev/null; then
@@ -199,8 +225,86 @@ cmd_rm() {
       git -C "$PARENT" worktree remove "$wt" && echo "  worktree removed" \
         || echo "  worktree NOT removed — uncommitted work? re-run with --force once you have checked"
     fi
-    [[ -n "$branch" ]] && echo "  branch $branch still exists: git -C $PARENT branch -d $branch"
+    # `done` deletes the branch itself a moment later; only `rm` needs the hint.
+    [[ -n "$branch" && "${ACTION:-rm}" != "done" ]] && \
+      echo "  branch $branch still exists: git -C $PARENT branch -d $branch"
   fi
+}
+
+# ---- done ---------------------------------------------------------------------
+# The close-out: verify the branch really is in origin/main, delete it locally and
+# on the remote, then tear the slot down. The merge check is the point - `rm` will
+# happily bin a slot whose work never landed.
+cmd_done() {
+  local slug="" force=false
+  while (($#)); do
+    case "$1" in
+      --force) force=true; shift ;;
+      -*) die "unknown flag $1" ;;
+      *) slug=$1; shift ;;
+    esac
+  done
+  [[ -n "$slug" ]] || usage 1
+
+  local wt="$BASE/aih-wt-$slug" session="wt-$slug"
+  ACTION=done assert_outside "$wt"
+  [[ -d "$wt" ]] || die "no worktree at $wt"
+
+  local branch
+  branch=$(git -C "$wt" branch --show-current) || die "cannot read the branch in $wt"
+  echo "Closing out '$slug' ($branch)"
+
+  # Uncommitted or unpushed work is lost with the worktree, so say so before it is.
+  if [[ -n "$(git -C "$wt" status --porcelain)" ]]; then
+    $force || die "uncommitted changes in $wt - commit, stash or re-run with --force"
+    echo "  WARNING: discarding uncommitted changes (--force)"
+  fi
+
+  git -C "$PARENT" fetch origin main --quiet
+  local unpushed
+  unpushed=$(git -C "$wt" log --oneline "origin/main..HEAD" 2>/dev/null | wc -l | tr -d ' ')
+
+  # A merge commit or fast-forward leaves the branch an ancestor of main. A squash
+  # or rebase merge does not, so fall back to asking GitHub whether a PR landed.
+  local merged_via=""
+  if git -C "$PARENT" merge-base --is-ancestor "$branch" origin/main 2>/dev/null; then
+    merged_via="in origin/main"
+  elif command -v gh >/dev/null 2>&1; then
+    local pr
+    pr=$(gh pr list --repo "$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" \
+           --head "$branch" --state merged --json number -q '.[0].number' 2>/dev/null)
+    [[ -n "$pr" ]] && merged_via="PR #$pr (squashed or rebased, so not an ancestor)"
+  fi
+
+  if [[ -z "$merged_via" ]]; then
+    if $force; then
+      echo "  WARNING: $branch is NOT merged - proceeding anyway (--force)"
+      [[ "$unpushed" != "0" ]] && echo "  WARNING: $unpushed commit(s) not in origin/main will be lost"
+    else
+      echo "Error: $branch is not merged into origin/main." >&2
+      [[ "$unpushed" != "0" ]] && echo "       It has $unpushed commit(s) that main does not." >&2
+      echo "       Merge it first, or use \`wt rm $slug\` to abandon the slot deliberately." >&2
+      exit 1
+    fi
+  else
+    echo "  merged: $merged_via"
+  fi
+
+  ACTION=done cmd_rm "$slug" --force
+
+  # Branch deletion comes after the worktree is gone - git refuses to delete a
+  # branch that is still checked out somewhere.
+  if git -C "$PARENT" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$PARENT" branch -D "$branch" >/dev/null && echo "  local branch deleted"
+  fi
+  if git -C "$PARENT" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+    git -C "$PARENT" push origin --delete "$branch" --quiet && echo "  remote branch deleted"
+  else
+    echo "  remote branch already gone"
+  fi
+
+  echo
+  echo "Closed out. Nothing left for '$slug'."
 }
 
 # ---- ls -----------------------------------------------------------------------
@@ -219,9 +323,10 @@ cmd_ls() {
 }
 
 case "${1:-}" in
-  new) shift; cmd_new "$@" ;;
-  rm)  shift; cmd_rm "$@" ;;
-  ls)  shift; cmd_ls "$@" ;;
+  new)  shift; cmd_new "$@" ;;
+  done) shift; cmd_done "$@" ;;
+  rm)   shift; cmd_rm "$@" ;;
+  ls)   shift; cmd_ls "$@" ;;
   ""|-h|--help) usage ;;
-  *) die "unknown command '$1' (use new, rm or ls)" ;;
+  *) die "unknown command '$1' (use new, done, rm or ls)" ;;
 esac

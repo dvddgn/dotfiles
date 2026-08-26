@@ -13,7 +13,7 @@ shell aliases and the scripts themselves reference them by that path.
 
 | Script | What it does |
 |---|---|
-| `wt.sh` | `wt new/rm/ls` — creates a complete AIH worktree slot: worktree, `.env`, copy-on-write `node_modules`, VS Code workspace entry, tmux session with `claude`/`rails`/`sidekiq`/`vite`/`shell` windows, and a Rails server |
+| `wt.sh` | `wt new/done/rm/ls` — creates a complete AIH worktree slot: worktree, `.env`, copy-on-write `node_modules`, VS Code workspace entry, tmux session with `claude`/`rails`/`sidekiq`/`vite`/`shell` windows, and a Rails server |
 | `services.sh` | `srv` — start/stop/restart rails, sidekiq and vite in any tmux session, stopping the same service elsewhere unless `--keep-others` |
 | `startup.sh` | `up` — brings up the day's tmux sessions |
 

@@ -84,6 +84,72 @@ with open(os.path.join(proj, ".cs-index"), "w") as fh:
 PY
 }
 
+# ---- profiles -----------------------------------------------------------------
+# A VS Code terminal tab takes its name from its profile, and a profile survives a
+# reboot where a hand-renamed tab does not. So the dropdown should be generated
+# from what is actually running, not maintained by hand.
+#
+# Standing work (ops-) and live worktree slots earn a profile. prj- sessions do
+# not: they are reachable from tmux-pick and would otherwise crowd the list.
+write_profiles() {
+  [[ -f "$MAP" ]] || return 0
+  python3 - "$MAP" "$HOME/.openclaw/workspace/claw.code-workspace" \
+                   "$HOME/code/dvddgn/aih-worktrees.code-workspace" <<'PYEOF'
+import json, os, sys
+mapfile, claw_ws, aih_ws = sys.argv[1:4]
+claw_dir = os.path.expanduser("~/.openclaw/workspace")
+
+rows = []
+for i, line in enumerate(open(mapfile)):
+    if i == 0 or not line.strip():
+        continue
+    parts = line.split()
+    if len(parts) < 2:
+        continue
+    rows.append((parts[0], parts[1]))
+
+KEEP_EXTRA = {"orchestrator", "wt-scoping"}
+def earns(sess):
+    return sess.startswith("ops-") or sess.startswith("wt-") or sess in KEEP_EXTRA
+
+def profile(sess):
+    return {"path": "/bin/zsh",
+            "args": ["-c", f"tmux new-session -A -s {sess} || exec zsh"]}
+
+claw, aih = {}, {}
+for sess, cwd in rows:
+    base = sess.split(":")[0]
+    if not earns(base):
+        continue
+    (claw if cwd == claw_dir else aih)[base] = profile(base)
+for extra in KEEP_EXTRA:
+    aih.setdefault(extra, profile(extra))
+
+PICK = {"path": "/bin/zsh", "args": ["-c", "tmux attach 2>/dev/null || exec zsh"]}
+
+def rewrite(path, keep, label):
+    ws = json.load(open(path))
+    profs = ws["settings"].setdefault("terminal.integrated.profiles.osx", {})
+    # Drop previously generated per-session entries, keep everything hand-written.
+    for k in [k for k, v in profs.items()
+              if isinstance(v, dict) and any("new-session -A -s" in a for a in v.get("args", []))
+              and k not in ("tmux-fresh",)]:
+        del profs[k]
+    profs.update(keep)
+    profs["tmux-pick"] = PICK
+    for hide in ("bash", "zsh", "tmux"):
+        profs[hide] = None
+    ws["settings"]["terminal.integrated.profiles.osx"] = dict(
+        sorted(profs.items(), key=lambda kv: (kv[1] is None, kv[0])))
+    open(path, "w").write(json.dumps(ws, indent=2, ensure_ascii=False) + "\n")
+    json.load(open(path))
+    print(f"  {label}: {len(keep)} session profiles")
+
+rewrite(claw_ws, claw, "claw")
+rewrite(aih_ws, aih, "aih-worktrees")
+PYEOF
+}
+
 # ---- snapshot / restore -------------------------------------------------------
 # tmux does not survive a reboot here (no resurrect/continuum), so a restart takes
 # every session with it. The transcripts survive, and each running Claude shows the
@@ -161,6 +227,7 @@ cmd_snapshot() {
   rm -f "$MAP.tmp" "$STATUS/.pane"
   write_inventory
   write_servers
+  write_profiles
   [[ -f "$STATUS/README.md" ]] || cp "$HOME/code/dvddgn/dotfiles/status-README.md" "$STATUS/README.md" 2>/dev/null
   echo "Recorded $n live Claude session(s) -> $STATUS/"
   printf '  %s\n' "sessions.txt  ($n)" \

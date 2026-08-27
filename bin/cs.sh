@@ -93,10 +93,17 @@ PY
 # not: they are reachable from tmux-pick and would otherwise crowd the list.
 write_profiles() {
   [[ -f "$MAP" ]] || return 0
+  # Two sources, because they answer different questions. The Claude map says
+  # which sessions have a live agent - genuinely a point-in-time reading, and it
+  # can miss one whose UI happened to be scrolled off when the pane was captured.
+  # Whether a session deserves a door in the terminal dropdown is not a
+  # point-in-time question, so that comes from tmux itself.
+  tmux list-sessions -F '#{session_name}	#{session_path}' 2>/dev/null > "$STATUS/.tmux-sessions" || : > "$STATUS/.tmux-sessions"
   python3 - "$MAP" "$HOME/.openclaw/workspace/claw.code-workspace" \
-                   "$HOME/code/dvddgn/aih-worktrees.code-workspace" <<'PYEOF'
+                   "$HOME/code/dvddgn/aih-worktrees.code-workspace" \
+                   "$STATUS/.tmux-sessions" <<'PYEOF'
 import json, os, sys
-mapfile, claw_ws, aih_ws = sys.argv[1:4]
+mapfile, claw_ws, aih_ws, livefile = sys.argv[1:5]
 claw_dir = os.path.expanduser("~/.openclaw/workspace")
 
 rows = []
@@ -121,6 +128,14 @@ def profile(sess):
     return {"path": "/bin/zsh",
             "args": ["-c", f"tmux new-session -A -s {sess} || exec zsh"]}
 
+# Every live session, whether or not an agent is in it. A slot with no agent
+# running is exactly the one you want to click into to start something.
+if os.path.exists(livefile):
+    for line in open(livefile):
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) >= 2 and parts[0]:
+            rows.append((parts[0], parts[1]))
+
 claw, aih = {}, {}
 for sess, cwd in rows:
     base = sess.split(":")[0]
@@ -142,6 +157,7 @@ def rewrite(path, keep, label):
         del profs[k]
     profs.update(keep)
     profs["tmux-pick"] = PICK
+    profs["zsh-plain"] = {"path": "/bin/zsh"}
     for hide in ("bash", "zsh", "tmux"):
         profs[hide] = None
     ws["settings"]["terminal.integrated.profiles.osx"] = dict(

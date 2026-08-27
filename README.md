@@ -15,7 +15,7 @@ shell aliases and the scripts themselves reference them by that path.
 |---|---|
 | `wt.sh` | `wt new/agent/restore/done/rename/rm/ls` — creates a complete AIH worktree slot: worktree, `.env`, copy-on-write `node_modules`, VS Code workspace entry, tmux session with `claude`/`rails`/`sidekiq`/`vite`/`shell` windows, and a Rails server |
 | `services.sh` | `srv` — start/stop/restart rails, sidekiq and vite in any tmux session, stopping the same service elsewhere unless `--keep-others` |
-| `cs.sh` | `cs` — list the Claude sessions recorded for a working directory, labelled by the line that started each one, and resume one by index. For directories hosting many long-lived conversations, where the built-in picker is unlabelled |
+| `cs.sh` | `cs` — list/resume Claude sessions; `cs snapshot` writes three inspectable files (session map, full tmux inventory, listening servers); `cs restore` rebuilds them after a reboot. Lists the sessions recorded for a working directory, labelled by the line that started each one, and resume one by index. For directories hosting many long-lived conversations, where the built-in picker is unlabelled |
 | `startup.sh` | `up` — brings up the day's tmux sessions |
 
 The matching aliases live in `zshrc`.

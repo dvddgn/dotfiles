@@ -14,6 +14,8 @@
 #   cs r <n|session-id>      # resume that one (index from the listing, or an id)
 #   cs r <n> --opus          # resume with a model override
 #   cs snapshot              # record every live Claude tmux session (do this now)
+#                            # also writes tmux-inventory.tsv (all sessions+windows)
+#                            # and servers.tsv (everything listening, and which slot owns it)
 #   cs restore               # after a reboot: rebuild those sessions
 #
 # Transcripts live under ~/.claude/projects and outlive the directory itself, so a
@@ -128,8 +130,51 @@ cmd_snapshot() {
   # Sorted by directory then session, so the file reads as groups: everything in
   # the claw workspace together, each clone together, each worktree slot together.
   sort -t$'\t' -k2,2 -k1,1 "$MAP.tmp" > "$MAP" && rm -f "$MAP.tmp"
+  write_inventory
+  write_servers
   echo "Recorded $n live Claude session(s) -> $MAP"
   column -t -s $'\t' "$MAP" | sed 's/^/  /' | head -60
+}
+
+# Everything open, not just the Claude sessions: one row per tmux WINDOW, so a
+# session with several agent windows shows all of them.
+INVENTORY="$HOME/.claude/tmux-inventory.tsv"
+write_inventory() {
+  {
+    printf 'session\twindow\tname\tcommand\tdirectory\n'
+    # tmux does not interpret \t in a format string - the tab has to be a real one.
+    tmux list-windows -a -F "#{session_name}$(printf '\t')#{window_index}$(printf '\t')#{window_name}$(printf '\t')#{pane_current_command}$(printf '\t')#{pane_current_path}" 2>/dev/null \
+      | sort -t$'\t' -k5,5 -k1,1 -k2,2n
+  } > "$INVENTORY"
+}
+
+# What is actually listening, and which slot owns it. The <worktree>.port files map
+# a port back to the slot that reserved it, which is the bit lsof cannot tell you.
+SERVERS="$HOME/.claude/servers.tsv"
+write_servers() {
+  # Slots reserve their port in a <worktree>.port file; the clones and the shared
+  # services have fixed ones (services.sh owns that table). Together these turn a
+  # bare port number into "who is this".
+  local portmap="3000=aih;3001=c1;3002=c2;3003=c3;3004=c4;3005=c5;3006=m1;3007=m2;"
+  portmap+="3008=m3;3009=m4;3010=m5;3011=hre;3036=vite;5432=postgres;6379=redis;" 
+  local f
+  for f in "$HOME"/code/dvddgn/aih-wt-*.port; do
+    [[ -f "$f" ]] || continue
+    portmap+="$(cat "$f")=wt-$(basename "$f" .port | sed 's/^aih-wt-//');"
+  done
+  {
+    printf 'port\tpid\tprocess\towner\n'
+    lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {
+        split($9, a, ":"); port = a[length(a)]
+        key = port "|" $2
+        if (seen[key]++) next
+        gsub(/\\x20.*/, "", $1)
+        printf "%s\t%s\t%s\n", port, $2, $1
+      }' | sort -n -u | while IFS=$'\t' read -r port pid proc; do
+        owner=$(echo "$portmap" | tr ';' '\n' | awk -F= -v p="$port" '$1==p {print $2}')
+        printf '%s\t%s\t%s\t%s\n' "$port" "$pid" "$proc" "${owner:--}"
+      done
+  } > "$SERVERS"
 }
 
 cmd_restore_tmux() {

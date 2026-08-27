@@ -25,12 +25,15 @@ gone and there is nothing to rebuild from.
 
 | column | |
 |---|---|
-| `SESSION` | the tmux session name — what you attach to, and what `cs restore` recreates |
+| `SESSION` | the tmux session name — what you attach to, and what `cs restore` recreates. A row like `ws:cc2` is a **second agent window** inside session `ws` |
 | `DIRECTORY` | where it must be recreated; Claude keys transcripts by working directory |
 | `CLAUDE SESSION NAME` | what `claude --resume` takes |
 
 Sorted by directory, so it reads as groups: everything in the claw workspace together,
 each clone together, each worktree slot together.
+
+**One row per agent WINDOW, not per session** — a session can hold several, and all of them
+need rebuilding after a reboot.
 
 **When column 1 and column 3 differ**, the two halves have drifted. Renaming a tmux
 session does not rename the Claude session inside it, and `--resume` only takes the

@@ -362,8 +362,12 @@ cmd_agent() {
   done
   [[ -n "$slug" ]] || die "usage: wt agent <slug> [window-name]"
 
-  local session="wt-$slug"
-  tmux has-session -t "$session" 2>/dev/null || die "no tmux session $session"
+  # Accept a slot slug (scoping -> wt-scoping) or a session name outright, so this
+  # works for the orchestrator and any other long-lived session, not only slots.
+  local session=""
+  if tmux has-session -t "wt-$slug" 2>/dev/null; then session="wt-$slug"
+  elif tmux has-session -t "$slug" 2>/dev/null; then session="$slug"
+  else die "no tmux session 'wt-$slug' or '$slug'"; fi
 
   # Default to the next free claude/claudeN. A name is better when the windows
   # hold different subjects - three windows called claude2/3/4 tell you nothing.
@@ -375,8 +379,10 @@ cmd_agent() {
   [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "window name must be lowercase letters, digits and hyphens"
   tmux list-windows -t "$session" -F "#{window_name}" | grep -qx "$name" && die "window $name already exists in $session"
 
+  # A slot has a known directory; any other session takes its current pane path.
   local wt="$BASE/aih-wt-$slug"
-  [[ -d "$wt" ]] || die "no worktree at $wt"
+  [[ -d "$wt" ]] || wt=$(tmux display-message -t "$session" -p '#{pane_current_path}' 2>/dev/null)
+  [[ -d "$wt" ]] || die "cannot resolve a working directory for $session"
 
   # Insert after the last agent window so the agents stay together, ahead of the
   # service windows. tmux -a inserts after the target index and renumbers.

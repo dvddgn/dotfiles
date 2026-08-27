@@ -163,7 +163,7 @@ write_servers() {
     portmap+="$(cat "$f")=wt-$(basename "$f" .port | sed 's/^aih-wt-//');"
   done
   {
-    printf 'port\tpid\tprocess\towner\n'
+    printf 'port\tpid\tprocess\towner\turl\tdirectory\n'
     lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {
         split($9, a, ":"); port = a[length(a)]
         key = port "|" $2
@@ -172,7 +172,15 @@ write_servers() {
         printf "%s\t%s\t%s\n", port, $2, $1
       }' | sort -n -u | while IFS=$'\t' read -r port pid proc; do
         owner=$(echo "$portmap" | tr ';' '\n' | awk -F= -v p="$port" '$1==p {print $2}')
-        printf '%s\t%s\t%s\t%s\n' "$port" "$pid" "$proc" "${owner:--}"
+        # The process's own working directory - what identifies the rows the port
+        # table cannot name. One lsof per pid, which is cheap at this scale.
+        dir=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+        dir=${dir/#$HOME/\~}
+        # A URL only means something for something serving HTTP.
+        local url="http://localhost:$port"
+        case "$proc" in postgres|redis-ser|mysqld|mongod) url="-" ;; esac
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+          "$port" "$pid" "$proc" "${owner:--}" "$url" "${dir:--}"
       done
   } > "$SERVERS"
 }

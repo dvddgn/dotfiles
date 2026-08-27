@@ -125,7 +125,9 @@ cmd_snapshot() {
     printf '%s\t%s\t%s\n' "$sess" "$cwd" "$title" >> "$MAP.tmp"
     n=$((n + 1))
   done < <(tmux ls -F '#{session_name}' 2>/dev/null)
-  mv "$MAP.tmp" "$MAP"
+  # Sorted by directory then session, so the file reads as groups: everything in
+  # the claw workspace together, each clone together, each worktree slot together.
+  sort -t$'\t' -k2,2 -k1,1 "$MAP.tmp" > "$MAP" && rm -f "$MAP.tmp"
   echo "Recorded $n live Claude session(s) -> $MAP"
   column -t -s $'\t' "$MAP" | sed 's/^/  /' | head -60
 }

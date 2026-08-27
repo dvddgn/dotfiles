@@ -93,10 +93,15 @@ PY
 #
 # The map lives outside any repo on purpose: these names describe personal
 # subjects, and dotfiles is a public repository.
-MAP="$HOME/.claude/tmux-session-map.tsv"
+# One folder, so everything about the machine's live state is in one place, and
+# each file is column-aligned rather than raw TSV - these are read by eye far more
+# often than they are parsed.
+STATUS="$HOME/.claude/status"
+MAP="$STATUS/sessions.txt"
 
 cmd_snapshot() {
   local n=0
+  mkdir -p "$STATUS"
   : > "$MAP.tmp"
   while read -r sess; do
     local cwd title cmd
@@ -129,28 +134,34 @@ cmd_snapshot() {
   done < <(tmux ls -F '#{session_name}' 2>/dev/null)
   # Sorted by directory then session, so the file reads as groups: everything in
   # the claw workspace together, each clone together, each worktree slot together.
-  sort -t$'\t' -k2,2 -k1,1 "$MAP.tmp" > "$MAP" && rm -f "$MAP.tmp"
+  mkdir -p "$STATUS"
+  { printf 'SESSION\tDIRECTORY\tCLAUDE SESSION NAME\n'
+    sort -t$'\t' -k2,2 -k1,1 "$MAP.tmp"; } | column -t -s$'\t' > "$MAP"
+  rm -f "$MAP.tmp"
   write_inventory
   write_servers
-  echo "Recorded $n live Claude session(s) -> $MAP"
-  column -t -s $'\t' "$MAP" | sed 's/^/  /' | head -60
+  echo "Recorded $n live Claude session(s) -> $STATUS/"
+  printf '  %s\n' "sessions.txt  ($n)" \
+                   "windows.txt   ($(($(wc -l < "$INVENTORY") - 1)) windows)" \
+                   "servers.txt   ($(($(wc -l < "$SERVERS") - 1)) listening)"
 }
 
 # Everything open, not just the Claude sessions: one row per tmux WINDOW, so a
 # session with several agent windows shows all of them.
-INVENTORY="$HOME/.claude/tmux-inventory.tsv"
+INVENTORY="$STATUS/windows.txt"
 write_inventory() {
+  mkdir -p "$STATUS"
   {
-    printf 'session\twindow\tname\tcommand\tdirectory\n'
+    printf 'SESSION\tWINDOW\tNAME\tCOMMAND\tDIRECTORY\n'
     # tmux does not interpret \t in a format string - the tab has to be a real one.
     tmux list-windows -a -F "#{session_name}$(printf '\t')#{window_index}$(printf '\t')#{window_name}$(printf '\t')#{pane_current_command}$(printf '\t')#{pane_current_path}" 2>/dev/null \
       | sort -t$'\t' -k5,5 -k1,1 -k2,2n
-  } > "$INVENTORY"
+  } | column -t -s$'\t' > "$INVENTORY"
 }
 
 # What is actually listening, and which slot owns it. The <worktree>.port files map
 # a port back to the slot that reserved it, which is the bit lsof cannot tell you.
-SERVERS="$HOME/.claude/servers.tsv"
+SERVERS="$STATUS/servers.txt"
 write_servers() {
   # Slots reserve their port in a <worktree>.port file; the clones and the shared
   # services have fixed ones (services.sh owns that table). Together these turn a
@@ -163,7 +174,7 @@ write_servers() {
     portmap+="$(cat "$f")=wt-$(basename "$f" .port | sed 's/^aih-wt-//');"
   done
   {
-    printf 'port\tpid\tprocess\towner\turl\tdirectory\n'
+    printf 'PORT\tPID\tPROCESS\tOWNER\tURL\tDIRECTORY\n'
     lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {
         split($9, a, ":"); port = a[length(a)]
         key = port "|" $2
@@ -182,14 +193,14 @@ write_servers() {
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
           "$port" "$pid" "$proc" "${owner:--}" "$url" "${dir:--}"
       done
-  } > "$SERVERS"
+  } | column -t -s$'\t' > "$SERVERS"
 }
 
 cmd_restore_tmux() {
   [[ -f "$MAP" ]] || die "no snapshot at $MAP - run 'cs snapshot' while the sessions are up"
   local rebuilt=0 skipped=0
-  while IFS=$'\t' read -r sess cwd title; do
-    [[ -z "$sess" ]] && continue
+  while read -r sess cwd title; do
+    [[ -z "$sess" || "$sess" == "SESSION" ]] && continue
     if tmux has-session -t "$sess" 2>/dev/null; then
       skipped=$((skipped + 1)); continue
     fi

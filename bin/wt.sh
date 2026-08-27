@@ -6,7 +6,7 @@
 # always ends up needing — so none of it is assembled a step at a time later.
 #
 # Usage:
-#   wt new    <slug> [branch] [--claudes N] [--no-rails]
+#   wt new    <slug> [branch] [--claudes N] [--no-rails]   # N defaults to 3 ($WT_CLAUDES)
 #   wt agent  <slug> [window-name]
 #   wt restore [slug] [--rails]        # after a reboot: rebuild the tmux sessions
 #   wt done   <slug> [--force]
@@ -112,8 +112,13 @@ PY
 # The session shape, in one place, so `new` and `restore` cannot drift apart. The
 # names are load-bearing: services.sh drives windows called rails/sidekiq/vite,
 # and bin/sidekiq refuses to run unless the session has one named sidekiq.
+# How many agent windows a session is scaffolded with. Clone sessions get three
+# (startup.sh's cc1/cc2/cc3); slots got one, which meant every extra agent had to
+# be added by hand at the moment it was wanted. Override with WT_CLAUDES.
+CLAUDES_DEFAULT=${WT_CLAUDES:-3}
+
 make_windows() {
-  local session=$1 wt=$2 claudes=${3:-1} i
+  local session=$1 wt=$2 claudes=${3:-$CLAUDES_DEFAULT} i
   tmux new-session -d -s "$session" -c "$wt" -n claude
   for ((i = 2; i <= claudes; i++)); do
     tmux new-window -d -t "$session" -n "claude$i" -c "$wt"
@@ -123,6 +128,32 @@ make_windows() {
   tmux new-window -d -t "$session" -n vite    -c "$wt"
   tmux new-window -d -t "$session" -n shell   -c "$wt"
   echo "  tmux session $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
+}
+
+# The orchestrator is not a slot: it has no checkout of its own and drives the
+# others from the parent clone, so it gets agent windows and a shell and none of
+# the service windows. Listed here so `wt restore` brings it back after a reboot
+# along with everything else - nothing else creates it.
+EXTRA_SESSIONS=(orchestrator)
+extra_session_dir() {
+  case "$1" in
+    orchestrator) echo "$PARENT" ;;
+    *) return 1 ;;
+  esac
+}
+
+make_agent_windows() {
+  local session=$1 dir=$2 n=${3:-$CLAUDES_DEFAULT} i
+  if tmux has-session -t "$session" 2>/dev/null; then
+    echo "  $session: session already up"
+    return 0
+  fi
+  tmux new-session -d -s "$session" -c "$dir" -n claude
+  for ((i = 2; i <= n; i++)); do
+    tmux new-window -d -t "$session" -n "claude$i" -c "$dir"
+  done
+  tmux new-window -d -t "$session" -n shell -c "$dir"
+  echo "  $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
 }
 
 # ---- vite ---------------------------------------------------------------------
@@ -175,7 +206,7 @@ link_memory() {
 
 # ---- new ----------------------------------------------------------------------
 cmd_new() {
-  local slug="" branch="" claudes=1 start_rails=true
+  local slug="" branch="" claudes=$CLAUDES_DEFAULT start_rails=true
   while (($#)); do
     case "$1" in
       --claudes) claudes="${2:?--claudes needs a number}"; shift 2 ;;
@@ -288,7 +319,22 @@ cmd_rm() {
     local branch
     branch=$(git -C "$wt" branch --show-current 2>/dev/null)
     if $force; then
-      git -C "$PARENT" worktree remove --force "$wt" && echo "  worktree removed (forced)"
+      # `--force` still refuses when it cannot clear the directory (a server was
+      # writing to log/, node_modules is busy), and it leaves the registration
+      # behind while reporting failure. Take the files ourselves: --force has
+      # already accepted the loss of anything uncommitted, and `done` checked for
+      # unpushed commits before it got here.
+      if git -C "$PARENT" worktree remove --force "$wt"; then
+        echo "  worktree removed (forced)"
+      else
+        rm -rf "$wt"
+        git -C "$PARENT" worktree prune
+        if [[ -d "$wt" ]]; then
+          echo "  worktree NOT removed - $wt is still on disk"
+        else
+          echo "  worktree removed (git left files behind; cleared them)"
+        fi
+      fi
     else
       git -C "$PARENT" worktree remove "$wt" && echo "  worktree removed" \
         || echo "  worktree NOT removed — uncommitted work? re-run with --force once you have checked"
@@ -372,6 +418,13 @@ cmd_done() {
   fi
 
   echo
+  # Never claim a clean close-out without looking. A removal that failed prints an
+  # error of its own, and a success line underneath it is worse than no line.
+  if [[ -d "$wt" ]]; then
+    echo "NOT fully closed out: $wt is still on disk ($(du -sh "$wt" 2>/dev/null | cut -f1 | tr -d " "))." >&2
+    echo "Everything else for '$slug' is gone. Check what is holding it, then: rm -rf $wt" >&2
+    exit 1
+  fi
   echo "Closed out. Nothing left for '$slug'."
 }
 
@@ -515,7 +568,14 @@ cmd_restore() {
     esac
   done
 
-  local wt slug session found=0
+  local wt slug session found=0 extras=0 extra dir
+  for extra in "${EXTRA_SESSIONS[@]}"; do
+    [[ -n "$slug_filter" && "$slug_filter" != "$extra" ]] && continue
+    dir=$(extra_session_dir "$extra") || continue
+    make_agent_windows "$extra" "$dir"
+    extras=$((extras + 1))
+  done
+
   shopt -s nullglob
   for wt in "$BASE"/aih-wt-*/; do
     wt="${wt%/}"
@@ -527,7 +587,7 @@ cmd_restore() {
     if tmux has-session -t "$session" 2>/dev/null; then
       echo "  $slug: session already up"
     else
-      make_windows "$session" "$wt" 1
+      make_windows "$session" "$wt"
       link_memory "$wt" >/dev/null
       $start_rails && "$SERVICES" "$session" start rails --keep-others >/dev/null 2>&1
     fi
@@ -541,7 +601,8 @@ cmd_restore() {
     fi
   done
 
-  [[ "$found" == "0" ]] && { echo "No slots found."; return 0; }
+  [[ "$found" == "0" && "$extras" == "0" ]] && { echo "No slots found."; return 0; }
+  [[ "$found" == "0" ]] && return 0
   cat <<EOF
 
 $found slot(s). Sessions rebuilt; agents are not resumed - run a resume line above,

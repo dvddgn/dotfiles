@@ -136,6 +136,10 @@ make_windows() {
 set_vite_port() {
   local wt=$1 railsport=$2 viteport
   [[ "$railsport" =~ ^[0-9]+$ ]] || return 0
+  # Only if this checkout's vite.config.ts honours the variable (PR #769). Against
+  # a config that still hardcodes 3036, naming a port here sends Rails to someone
+  # else's Vite while this one fails to bind.
+  grep -q 'VITE_RUBY_PORT' "$wt/vite.config.ts" 2>/dev/null || return 0
   viteport=$((railsport + 30))          # 3012+ -> 3042+, clear of 3036/3037
   grep -q '^VITE_RUBY_PORT=' "$wt/.env" 2>/dev/null && return 0
   {

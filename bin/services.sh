@@ -184,8 +184,14 @@ SIDEKIQ_CMD="bundle exec sidekiq -C config/sidekiq.yml"
 # and `bin/vite dev` does NOT (dotenv only loads inside Rails), so it is also
 # passed on the command line. Written here rather than only by `wt new`, so a
 # slot created with --no-rails still gets one when a server is first started.
+# Only if the checkout's vite.config.ts actually honours the variable. Setting it
+# against a config that still hardcodes 3036 is worse than doing nothing: Vite
+# binds 3036 (or fails, strictPort) while Rails proxies to the port named here -
+# which is very likely another checkout's Vite. The capability is checked rather
+# than assumed, so this works either side of PR #769 landing.
 VITE_PORT=""
-if [[ "$SESSION" == wt-* && -d "$SESSION_DIR" && "$PORT" =~ ^[0-9]+$ ]]; then
+if [[ "$SESSION" == wt-* && -d "$SESSION_DIR" && "$PORT" =~ ^[0-9]+$ ]] \
+   && grep -q 'VITE_RUBY_PORT' "$SESSION_DIR/vite.config.ts" 2>/dev/null; then
   VITE_PORT=$(grep -h '^VITE_RUBY_PORT=' "$SESSION_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2)
   if [[ -z "$VITE_PORT" ]]; then
     VITE_PORT=$((PORT + 30))     # 3012+ -> 3042+, clear of vite's 3036/3037

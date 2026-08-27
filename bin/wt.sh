@@ -125,6 +125,28 @@ make_windows() {
   echo "  tmux session $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
 }
 
+# ---- vite ---------------------------------------------------------------------
+# config/vite.json pins every checkout to 3036, and only one process can hold a
+# port - so whoever starts Vite first serves JavaScript to every other checkout,
+# silently, because Rails proxies /vite-dev/* to whatever port it is told. A slot
+# therefore needs its own, derived from its Rails port so it cannot collide.
+#
+# Rails reads this from .env on boot. `bin/vite dev` does NOT - dotenv only loads
+# inside Rails - so services.sh passes it on the command line as well.
+set_vite_port() {
+  local wt=$1 railsport=$2 viteport
+  [[ "$railsport" =~ ^[0-9]+$ ]] || return 0
+  viteport=$((railsport + 30))          # 3012+ -> 3042+, clear of 3036/3037
+  grep -q '^VITE_RUBY_PORT=' "$wt/.env" 2>/dev/null && return 0
+  {
+    echo ""
+    echo "# This checkout's own Vite dev server. Without it every checkout shares"
+    echo "# 3036 and the first one to start serves JavaScript to all the others."
+    echo "VITE_RUBY_PORT=$viteport"
+  } >> "$wt/.env"
+  echo "  vite port $viteport (in .env)"
+}
+
 # ---- memory -------------------------------------------------------------------
 # Claude Code keys its memory directory off the working directory's path, so a new
 # slot starts with an empty one and an agent there loses every accumulated lesson.
@@ -211,6 +233,7 @@ cmd_new() {
     port=$(cat "$wt.port" 2>/dev/null || echo "?")
     echo "  rails starting on port $port"
     urlline="  url       http://localhost:$port"
+    set_vite_port "$wt" "$port"
   else
     urlline="  url       no server — start one with: srv $session rails --keep-others"
   fi

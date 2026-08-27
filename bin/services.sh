@@ -72,8 +72,11 @@ ensure_window() {
   }
 }
 
+# Resolve the directory unconditionally - the vite port is read from its .env
+# whether or not the session already exists.
+SESSION_DIR="$(session_dir "$SESSION")"
+
 if ! tmux has-session -t "$SESSION" 2>/dev/null; then
-  SESSION_DIR="$(session_dir "$SESSION")"
   if [[ "$SESSION" == wt-* && -d "$SESSION_DIR" ]]; then
     echo "Creating tmux session $SESSION at $SESSION_DIR"
     tmux new-session -d -s "$SESSION" -c "$SESSION_DIR"
@@ -173,7 +176,29 @@ do_action() {
 
 RAILS_CMD="bin/rails server -p $PORT"
 SIDEKIQ_CMD="bundle exec sidekiq -C config/sidekiq.yml"
-VITE_CMD="bin/vite dev"
+# Every checkout is pinned to 3036 by config/vite.json, and only one process can
+# hold a port - so the first to start serves JavaScript to all the others,
+# silently. A worktree slot gets its own, derived from its Rails port.
+#
+# It has to reach two processes by two routes: Rails reads it from .env on boot,
+# and `bin/vite dev` does NOT (dotenv only loads inside Rails), so it is also
+# passed on the command line. Written here rather than only by `wt new`, so a
+# slot created with --no-rails still gets one when a server is first started.
+VITE_PORT=""
+if [[ "$SESSION" == wt-* && -d "$SESSION_DIR" && "$PORT" =~ ^[0-9]+$ ]]; then
+  VITE_PORT=$(grep -h '^VITE_RUBY_PORT=' "$SESSION_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2)
+  if [[ -z "$VITE_PORT" ]]; then
+    VITE_PORT=$((PORT + 30))     # 3012+ -> 3042+, clear of vite's 3036/3037
+    {
+      echo ""
+      echo "# This checkout's own Vite dev server. Without it every checkout shares"
+      echo "# 3036 and the first one to start serves JavaScript to all the others."
+      echo "VITE_RUBY_PORT=$VITE_PORT"
+    } >> "$SESSION_DIR/.env"
+    echo "  (allocated Vite port $VITE_PORT for $SESSION)"
+  fi
+fi
+VITE_CMD="${VITE_PORT:+VITE_RUBY_PORT=$VITE_PORT }bin/vite dev"
 CSS_CMD="bin/rails tailwindcss:watch"
 
 case "$SERVICE" in

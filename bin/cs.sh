@@ -110,7 +110,12 @@ for i, line in enumerate(open(mapfile)):
 
 KEEP_EXTRA = {"orchestrator", "wt-scoping"}
 def earns(sess):
-    return sess.startswith("ops-") or sess.startswith("wt-") or sess in KEEP_EXTRA
+    # ops- (standing subjects), wt- (slots) and prj- (project sessions) are all
+    # long-lived and subject-named. prj- was left out originally to keep the list
+    # short; the list regenerates from `cs snapshot`, so there is nothing to
+    # maintain by hand and no reason to treat it differently.
+    return (sess.startswith("ops-") or sess.startswith("wt-")
+            or sess.startswith("prj-") or sess in KEEP_EXTRA)
 
 def profile(sess):
     return {"path": "/bin/zsh",

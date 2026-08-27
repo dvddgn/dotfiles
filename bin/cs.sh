@@ -118,8 +118,17 @@ cmd_snapshot() {
     # Detect Claude by what is on screen, not by the process name: a session
     # launched through ccp leaves `bash` as the pane's foreground process, so
     # filtering on the command name misses exactly the sessions that matter.
+    # A LIVE Claude redraws its status block at the bottom of the pane. After it
+    # exits, that block stays in the scrollback above a shell prompt - so grepping
+    # the whole pane reports agents that quit minutes ago. Look at the last few
+    # lines only, which is where a running UI always is.
     tmux capture-pane -t "$t" -p 2>/dev/null | LC_ALL=C tr -cd '\11\12\15\40-\176' \
-      | grep -qE 'bypass permissions|accept edits|plan mode' || continue
+      | grep -v '^[[:space:]]*$' | tail -6 > "$STATUS/.pane" 2>/dev/null
+    grep -qE 'bypass permissions|accept edits|plan mode' "$STATUS/.pane" || continue
+    # Claude prints "Resume this session with:" as it exits, below the status
+    # block it leaves behind. Its presence at the bottom means the agent is gone,
+    # however much of its UI is still on screen.
+    grep -q 'Resume this session with' "$STATUS/.pane" && continue
 
     # Claude shows TWO things and only one is resumable: the SESSION NAME (set by
     # `claude -n` or /rename), and below the working directory an auto-generated
@@ -149,7 +158,7 @@ cmd_snapshot() {
   mkdir -p "$STATUS"
   { printf 'SESSION\tDIRECTORY\tCLAUDE SESSION NAME\n'
     sort -t$'\t' -k2,2 -k1,1 "$MAP.tmp"; } | column -t -s$'\t' > "$MAP"
-  rm -f "$MAP.tmp"
+  rm -f "$MAP.tmp" "$STATUS/.pane"
   write_inventory
   write_servers
   [[ -f "$STATUS/README.md" ]] || cp "$HOME/code/dvddgn/dotfiles/status-README.md" "$STATUS/README.md" 2>/dev/null

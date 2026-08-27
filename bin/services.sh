@@ -175,7 +175,50 @@ do_action() {
 }
 
 RAILS_CMD="bin/rails server -p $PORT"
-SIDEKIQ_CMD="bundle exec sidekiq -C config/sidekiq.yml"
+# Every checkout defaults to redis db0, so all workers pop from one queue and a
+# job dispatched here can be executed by another checkout running different code
+# - silently, and recorded as a real result. Redis has 16 databases; giving a
+# checkout its own makes its queue invisible to every other worker.
+#
+# Allocated when Sidekiq is first started here, not at slot creation: a checkout
+# with no worker has nothing to isolate, and there are only 8 slot indices.
+# Clones hold 1-7 (fixed, set once in their own .env); slots take 8-15; anything
+# unallocated stays on db0 and behaves exactly as before.
+#
+# ENV.fetch('REDIS_URL', ...) has been in config/initializers/sidekiq.rb since
+# 2025-09-03 for BOTH configure_server and configure_client, so every branch
+# honours this - no capability guard needed, unlike the Vite equivalent.
+resolve_redis_db() {
+  local wt=$1 f="$1.redisdb" db=8
+  [[ -f "$f" ]] && { cat "$f"; return; }
+  while [[ $db -le 15 ]]; do
+    grep -qx "$db" "$HOME"/code/dvddgn/aih-wt-*.redisdb 2>/dev/null || break
+    db=$((db + 1))
+  done
+  [[ $db -gt 15 ]] && { echo ""; return; }   # out of indices: stay on db0
+  echo "$db" | tee "$f"
+}
+
+REDIS_DB=""
+if [[ "$SESSION" == wt-* && -d "$SESSION_DIR" ]]; then
+  REDIS_DB=$(grep -h '^REDIS_URL=' "$SESSION_DIR/.env" 2>/dev/null | tail -1 | sed 's|.*/||')
+  if [[ -z "$REDIS_DB" ]]; then
+    REDIS_DB=$(resolve_redis_db "$SESSION_DIR")
+    if [[ -n "$REDIS_DB" ]]; then
+      {
+        echo ""
+        echo "# This checkout's own Sidekiq queue. Without it every checkout shares"
+        echo "# redis db0 and a job dispatched here can be run by another checkout's"
+        echo "# worker, on different code, silently."
+        echo "REDIS_URL=redis://localhost:6379/$REDIS_DB"
+      } >> "$SESSION_DIR/.env"
+      echo "  (allocated Redis db $REDIS_DB for $SESSION)"
+    else
+      echo "  WARNING: no free Redis index (8-15 all taken) - $SESSION stays on db0, shared" >&2
+    fi
+  fi
+fi
+SIDEKIQ_CMD="${REDIS_DB:+REDIS_URL=redis://localhost:6379/$REDIS_DB }bundle exec sidekiq -C config/sidekiq.yml"
 # Every checkout is pinned to 3036 by config/vite.json, and only one process can
 # hold a port - so the first to start serves JavaScript to all the others,
 # silently. A worktree slot gets its own, derived from its Rails port.

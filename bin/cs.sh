@@ -106,9 +106,11 @@ cmd_snapshot() {
   while read -r sess; do
     local cwd title cmd
     cwd=$(tmux display-message -t "$sess" -p '#{pane_current_path}' 2>/dev/null) || continue
-    cmd=$(tmux display-message -t "$sess" -p '#{pane_current_command}' 2>/dev/null)
-    # An idle shell has nothing to resume; only panes running Claude do.
-    [[ "$cmd" == "zsh" || "$cmd" == "bash" ]] && continue
+    # Detect Claude by what is on screen, not by the process name: a session
+    # launched through ccp leaves `bash` as the pane's foreground process, so
+    # filtering on the command name misses exactly the sessions that matter.
+    tmux capture-pane -t "$sess" -p 2>/dev/null | LC_ALL=C tr -cd '\11\12\15\40-\176' \
+      | grep -qE 'bypass permissions|accept edits|plan mode' || continue
     # Claude shows TWO things and only one is resumable: the SESSION NAME (set by
     # `claude -n` or /rename), and below the working directory an auto-generated
     # CONVERSATION SUMMARY that drifts as the subject moves. --resume takes the

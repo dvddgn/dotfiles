@@ -1,6 +1,6 @@
 #!/bin/bash
 # Start/stop/restart rails, sidekiq, vite (or css for hre) in any tmux session
-# Usage: ./services.sh <session> <start|stop|restart> [rails|sidekiq|vite|css|all] [--keep-others]
+# Usage: ./services.sh <session> <start|stop|restart> [rails|sidekiq|vite|css|all] [--take]
 #
 # On start/restart, services of the same kind running in OTHER sessions are
 # stopped first (shared Supabase DB + shared vite port make concurrent runs
@@ -12,16 +12,24 @@ STATIC_SESSIONS=(aih c1 c2 c3 c4 c5 m1 m2 m3 m4 m5)
 # survive the stop sweep and keep holding sidekiq's queue or vite's port.
 WT_SESSIONS=($(tmux ls -F "#{session_name}" 2>/dev/null | grep '^wt-' || true))
 ALL_SESSIONS=("${STATIC_SESSIONS[@]}" "${WT_SESSIONS[@]}")
-KEEP_OTHERS=false
+# Stopping the same service in every other checkout was correct while Rails, Vite
+# and Sidekiq were shared singletons: starting yours required taking theirs. Since
+# each slot got its own port and its own Redis database (2026-08-27) there is
+# nothing to contend over, so seizing is now pure collateral damage - it Ctrl-Cs a
+# colleague's running service for no benefit.
+#
+# Keep others by default. --take restores the old behaviour, which is still the
+# only way for a checkout that genuinely shares: an old branch with no
+# VITE_RUBY_PORT, or a slot past the 15-index Redis ceiling.
+KEEP_OTHERS=true
 
-# Parse args, pulling out --keep-others
 ARGS=()
 for arg in "$@"; do
-  if [[ "$arg" == "--keep-others" ]]; then
-    KEEP_OTHERS=true
-  else
-    ARGS+=("$arg")
-  fi
+  case "$arg" in
+    --take)        KEEP_OTHERS=false ;;
+    --keep-others) KEEP_OTHERS=true ;;   # now the default; accepted so old commands still work
+    *)             ARGS+=("$arg") ;;
+  esac
 done
 
 SESSION="${ARGS[0]:?Usage: ./services.sh <session> <start|stop|restart> [rails|sidekiq|vite|all] [--keep-others]}"
@@ -86,8 +94,9 @@ if ! tmux has-session -t "$SESSION" 2>/dev/null; then
   fi
 fi
 
-# hre has its own local DB and port — no cross-session conflicts, never stop others
-[[ "$SESSION" == "hre" ]] && KEEP_OTHERS=true
+# hre needed an explicit exemption when seizing was the default - it has its own
+# local DB and port, so it never had cause to stop anyone. That is now every
+# checkout's position, so the special case is gone.
 
 # Determine port based on session
 case "$SESSION" in
@@ -131,7 +140,7 @@ stop_others() {
     local cmd
     cmd=$(window_command "$s" "$window")
     if window_is_running "$cmd"; then
-      echo "  → Stopping $window in $s (was: $cmd)"
+      echo "  → --take: stopping $window in $s (was: $cmd)" >&2
       tmux send-keys -t "$s:$window" C-c
     fi
   done

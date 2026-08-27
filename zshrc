@@ -166,8 +166,10 @@ alias cs="~/code/dvddgn/cs.sh"
 # srv m1 rails        → restart just rails
 # srv stop m1         → stop all
 # srv stop m1 vite    → stop just vite
+# Other checkouts are left alone by default; --take stops the same service
+# elsewhere first, which is only needed for a checkout that still shares a port.
 srv() {
-  # Trailing flags (e.g. --keep-others) are passed through to services.sh.
+  # Trailing flags (e.g. --take) are passed through to services.sh.
   if [[ "$1" == "stop" ]]; then
     local sess="${2:?Usage: srv stop <session> [service] [--keep-others]}"
     local svc="${3:-all}"; shift 3 2>/dev/null

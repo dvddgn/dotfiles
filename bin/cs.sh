@@ -32,11 +32,19 @@ proj_dir() {
 }
 
 list_sessions() {
-  local proj=$1 limit=$2 filter=$3
+  local proj=$1 limit=$2 filter=$3 matches=""
   [[ -d "$proj" ]] || die "no sessions recorded for that directory ($proj)"
-  python3 - "$proj" "$limit" "$filter" <<'PY'
+  # Search the whole conversation, not just its opening line - what you remember
+  # about a session is rarely the first thing you said to it. grep does this in
+  # seconds over hundreds of MB where re-parsing the JSON in python would not.
+  if [[ -n "$filter" ]]; then
+    matches=$(grep -ril -- "$filter" "$proj"/*.jsonl 2>/dev/null \
+              | xargs -n1 basename 2>/dev/null | sed 's/\.jsonl$//' | paste -sd, -)
+  fi
+  python3 - "$proj" "$limit" "$filter" "$matches" <<'PY'
 import glob, json, os, sys, time
 proj, limit, filt = sys.argv[1], int(sys.argv[2]), sys.argv[3].lower()
+deep = set(filter(None, (sys.argv[4] if len(sys.argv) > 4 else "").split(",")))
 rows = []
 for f in glob.glob(os.path.join(proj, "*.jsonl")):
     first = None
@@ -58,7 +66,8 @@ for f in glob.glob(os.path.join(proj, "*.jsonl")):
     rows.append((os.path.getmtime(f), os.path.basename(f)[:-6], os.path.getsize(f), first or "(no user text)"))
 rows.sort(reverse=True)
 if filt:
-    rows = [r for r in rows if filt in r[3].lower()]
+    # A hit in the opening line or anywhere in the transcript.
+    rows = [r for r in rows if filt in r[3].lower() or r[1] in deep]
 if not rows:
     print("  no matching sessions"); raise SystemExit(0)
 print(f"  {len(rows)} session(s) in {proj}\n")
@@ -93,10 +102,25 @@ cmd_snapshot() {
     cmd=$(tmux display-message -t "$sess" -p '#{pane_current_command}' 2>/dev/null)
     # An idle shell has nothing to resume; only panes running Claude do.
     [[ "$cmd" == "zsh" || "$cmd" == "bash" ]] && continue
-    # The status block prints the session name on the line above "… · <model>".
-    title=$(tmux capture-pane -t "$sess" -p 2>/dev/null | grep -v '^$' \
-            | grep -B1 -E '·[[:space:]]+(Opus|Sonnet|Haiku|Fable)' | head -1 \
+    # Claude shows TWO things and only one is resumable: the SESSION NAME (set by
+    # `claude -n` or /rename), and below the working directory an auto-generated
+    # CONVERSATION SUMMARY that drifts as the subject moves. --resume takes the
+    # name, so read the line above the cwd rather than the one below it.
+    title=$(tmux capture-pane -t "$sess" -p 2>/dev/null | LC_ALL=C tr -cd '\11\12\15\40-\176' \
+            | awk '{L[n++]=$0} END{ for(i=n-1;i>=0;i--) if (L[i] ~ /^  [~.\/]/) {
+                     # The name is drawn as a tab above the input box: exactly one
+                     # leading space. Input-box text starts at column 0, so this
+                     # tells them apart without counting lines.
+                     for(j=i-1;j>=0 && j>i-6;j--) if (L[j] ~ /^ [^ ]/) { print L[j]; exit }
+                     exit } }' \
             | sed 's/^[[:space:]]*//;s/[[:space:]]\{2,\}.*$//;s/[[:space:]]*$//')
+    # An unnamed session has no name line; fall back to the summary so the row is
+    # still identifiable, and `cs restore` gives it a search line, not a resume line.
+    if [[ -z "$title" ]]; then
+      title=$(tmux capture-pane -t "$sess" -p 2>/dev/null | grep -v '^$' \
+              | grep -B1 -E '·[[:space:]]+(Opus|Sonnet|Haiku|Fable)' | head -1 \
+              | sed 's/^[[:space:]]*//;s/[[:space:]]\{2,\}.*$//;s/[[:space:]]*$//')
+    fi
     [[ -z "$title" ]] && title="(unnamed)"
     printf '%s\t%s\t%s\n' "$sess" "$cwd" "$title" >> "$MAP.tmp"
     n=$((n + 1))

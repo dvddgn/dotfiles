@@ -145,8 +145,6 @@ for sess, cwd in rows:
 for extra in KEEP_EXTRA:
     aih.setdefault(extra, profile(extra))
 
-PICK = {"path": "/bin/zsh", "args": ["-c", "tmux attach 2>/dev/null || exec zsh"]}
-
 def rewrite(path, keep, label):
     ws = json.load(open(path))
     profs = ws["settings"].setdefault("terminal.integrated.profiles.osx", {})
@@ -156,7 +154,12 @@ def rewrite(path, keep, label):
               and k not in ("tmux-fresh",)]:
         del profs[k]
     profs.update(keep)
-    profs["tmux-pick"] = PICK
+    # tmux-pick used to live here: bare `tmux attach`, which despite the name
+    # cannot choose - it lands on whichever session was attached last, and that
+    # one already has an entry of its own. Sessions with no profile (the clones,
+    # and anything filed in the other workspace) are reached by name from a plain
+    # shell, which is what you would type anyway.
+    profs.pop("tmux-pick", None)
     profs["zsh-plain"] = {"path": "/bin/zsh"}
     for hide in ("bash", "zsh", "tmux"):
         profs[hide] = None

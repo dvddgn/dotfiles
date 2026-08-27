@@ -2,7 +2,7 @@
 # wt.sh — create or tear down a complete AIH worktree slot in one command.
 #
 # A slot is: the git worktree, its .env, a copy-on-write node_modules, an entry
-# in the shared VS Code workspace, a tmux session, and the four windows a slot
+# in the shared VS Code workspace, a tmux session, and the seven windows a slot
 # always ends up needing — so none of it is assembled a step at a time later.
 #
 # Usage:

@@ -140,6 +140,7 @@ cmd_snapshot() {
   rm -f "$MAP.tmp"
   write_inventory
   write_servers
+  [[ -f "$STATUS/README.md" ]] || cp "$HOME/code/dvddgn/dotfiles/status-README.md" "$STATUS/README.md" 2>/dev/null
   echo "Recorded $n live Claude session(s) -> $STATUS/"
   printf '  %s\n' "sessions.txt  ($n)" \
                    "windows.txt   ($(($(wc -l < "$INVENTORY") - 1)) windows)" \

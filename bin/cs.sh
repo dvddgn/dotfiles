@@ -100,42 +100,52 @@ STATUS="$HOME/.claude/status"
 MAP="$STATUS/sessions.txt"
 
 cmd_snapshot() {
-  local n=0
+  local n=0 seen=""
   mkdir -p "$STATUS"
   : > "$MAP.tmp"
-  while read -r sess; do
-    local cwd title cmd
-    cwd=$(tmux display-message -t "$sess" -p '#{pane_current_path}' 2>/dev/null) || continue
+  # Walk WINDOWS, not sessions: reading a session gives only its ACTIVE pane, so a
+  # session with three agent windows recorded one, and `ws` - whose active window
+  # is a shell - was missed entirely despite running three agents.
+  #
+  # Target by window INDEX, never by name. Claude names its window after its own
+  # version (2.1.220), and tmux reads the dot as a pane separator, so
+  # `-t session:2.1.220` silently resolves to nothing.
+  while IFS=$'\t' read -r sess idx wname cwd; do
+    local title label t
+    [[ -z "$sess" || ! -d "$cwd" ]] && continue
+    t="${sess}:${idx}"
+
     # Detect Claude by what is on screen, not by the process name: a session
     # launched through ccp leaves `bash` as the pane's foreground process, so
     # filtering on the command name misses exactly the sessions that matter.
-    tmux capture-pane -t "$sess" -p 2>/dev/null | LC_ALL=C tr -cd '\11\12\15\40-\176' \
+    tmux capture-pane -t "$t" -p 2>/dev/null | LC_ALL=C tr -cd '\11\12\15\40-\176' \
       | grep -qE 'bypass permissions|accept edits|plan mode' || continue
+
     # Claude shows TWO things and only one is resumable: the SESSION NAME (set by
     # `claude -n` or /rename), and below the working directory an auto-generated
     # CONVERSATION SUMMARY that drifts as the subject moves. --resume takes the
     # name, so read the line above the cwd rather than the one below it.
-    title=$(tmux capture-pane -t "$sess" -p 2>/dev/null | LC_ALL=C tr -cd '\11\12\15\40-\176' \
+    title=$(tmux capture-pane -t "$t" -p 2>/dev/null | LC_ALL=C tr -cd '\11\12\15\40-\176' \
             | awk '{L[n++]=$0} END{ for(i=n-1;i>=0;i--) if (L[i] ~ /^  [~.\/]/) {
-                     # The name is drawn as a tab above the input box: exactly one
-                     # leading space. Input-box text starts at column 0, so this
-                     # tells them apart without counting lines.
+                     # the name is a tab above the input box: exactly one leading
+                     # space, where input-box text starts at column 0
                      for(j=i-1;j>=0 && j>i-6;j--) if (L[j] ~ /^ [^ ]/) { print L[j]; exit }
                      exit } }' \
             | sed 's/^[[:space:]]*//;s/[[:space:]]\{2,\}.*$//;s/[[:space:]]*$//')
-    # An unnamed session has no name line; fall back to the summary so the row is
-    # still identifiable, and `cs restore` gives it a search line, not a resume line.
     if [[ -z "$title" ]]; then
-      title=$(tmux capture-pane -t "$sess" -p 2>/dev/null | grep -v '^$' \
+      title=$(tmux capture-pane -t "$t" -p 2>/dev/null | grep -v '^$' \
               | grep -B1 -E '·[[:space:]]+(Opus|Sonnet|Haiku|Fable)' | head -1 \
               | sed 's/^[[:space:]]*//;s/[[:space:]]\{2,\}.*$//;s/[[:space:]]*$//')
     fi
-    [[ -z "$title" ]] && title="(unnamed)"
-    printf '%s\t%s\t%s\n' "$sess" "$cwd" "$title" >> "$MAP.tmp"
+
+    # The first agent window in a session is the session; later ones are qualified
+    # by window name, which is what `cs restore` needs to recreate them.
+    if [[ " $seen " == *" $sess "* ]]; then label="${sess}:${wname}"; else label="$sess"; seen="$seen $sess"; fi
+
+    printf '%s\t%s\t%s\n' "$label" "$cwd" "$title" >> "$MAP.tmp"
     n=$((n + 1))
-  done < <(tmux ls -F '#{session_name}' 2>/dev/null)
-  # Sorted by directory then session, so the file reads as groups: everything in
-  # the claw workspace together, each clone together, each worktree slot together.
+  done < <(tmux list-panes -a -F "#{session_name}$(printf '\t')#{window_index}$(printf '\t')#{window_name}$(printf '\t')#{pane_current_path}" 2>/dev/null)
+
   mkdir -p "$STATUS"
   { printf 'SESSION\tDIRECTORY\tCLAUDE SESSION NAME\n'
     sort -t$'\t' -k2,2 -k1,1 "$MAP.tmp"; } | column -t -s$'\t' > "$MAP"
@@ -145,8 +155,8 @@ cmd_snapshot() {
   [[ -f "$STATUS/README.md" ]] || cp "$HOME/code/dvddgn/dotfiles/status-README.md" "$STATUS/README.md" 2>/dev/null
   echo "Recorded $n live Claude session(s) -> $STATUS/"
   printf '  %s\n' "sessions.txt  ($n)" \
-                   "windows.txt   ($(($(wc -l < "$INVENTORY") - 1)) windows)" \
-                   "servers.txt   ($(($(wc -l < "$SERVERS") - 1)) listening)"
+                  "windows.txt   ($(($(wc -l < "$INVENTORY") - 1)) windows)" \
+                  "servers.txt   ($(($(wc -l < "$SERVERS") - 1)) listening)"
 }
 
 # Everything open, not just the Claude sessions: one row per tmux WINDOW, so a
@@ -204,11 +214,25 @@ cmd_restore_tmux() {
   local rebuilt=0 skipped=0
   while read -r sess cwd title; do
     [[ -z "$sess" || "$sess" == "SESSION" ]] && continue
-    if tmux has-session -t "$sess" 2>/dev/null; then
-      skipped=$((skipped + 1)); continue
+    # A row is either a session, or session:window for a second-or-later agent
+    # window in that session. Both have to come back.
+    local base="${sess%%:*}" win=""
+    [[ "$sess" == *:* ]] && win="${sess#*:}"
+
+    if [[ -z "$win" ]]; then
+      tmux has-session -t "$base" 2>/dev/null && { skipped=$((skipped + 1)); continue; }
+    else
+      tmux list-windows -t "$base" -F '#{window_name}' 2>/dev/null | grep -qx "$win" \
+        && { skipped=$((skipped + 1)); continue; }
     fi
+
     [[ -d "$cwd" ]] || { echo "  $sess: directory gone ($cwd)"; continue; }
-    tmux new-session -d -s "$sess" -c "$cwd"
+    if [[ -z "$win" ]]; then
+      tmux new-session -d -s "$base" -c "$cwd"
+    else
+      tmux has-session -t "$base" 2>/dev/null || tmux new-session -d -s "$base" -c "$cwd"
+      tmux new-window -d -t "$base" -n "$win" -c "$cwd"
+    fi
     rebuilt=$((rebuilt + 1))
     # A kebab-case title is a name passed to `claude -n`, so --resume takes it.
     # Anything with spaces is a generated summary; fall back to finding it by text.

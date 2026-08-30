@@ -100,7 +100,7 @@ ws = {
             "titleBar.activeBackground": "#0f4c5c",
             "titleBar.activeForeground": "#ffffff",
         },
-        "window.zoomLevel": 1,
+        "window.zoomLevel": 0,
         "terminal.integrated.hideOnStartup": "never",
         "workbench.panel.defaultLocation": "left",
         "terminal.integrated.profiles.osx": {

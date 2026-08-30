@@ -358,6 +358,13 @@ cmd_rm() {
 
   ws_remove "$slug"
   rm -f "$wt.port" && echo "  port file removed"
+  # A brief/context file lives BESIDE the worktree so `git worktree remove`
+  # cannot take it with the directory - which is also why nothing else ever
+  # did. They are small and outside every `git status`, so they accumulate
+  # silently: three orphans had built up by 2026-08-30.
+  for side in "$wt.brief.md" "$wt.context.md"; do
+    [[ -f "$side" ]] && rm -f "$side" && echo "  $(basename "$side") removed"
+  done
 
   if [[ -d "$wt" ]]; then
     local branch
@@ -576,6 +583,11 @@ cmd_rename() {
   }
 
   [[ -f "$owt.port" ]] && mv "$owt.port" "$nwt.port" && echo "  port file moved"
+  # Same reason as the port file: named for the slug, so a rename would strand
+  # them under the old one and teardown would no longer find them.
+  for ext in brief.md context.md; do
+    [[ -f "$owt.$ext" ]] && mv "$owt.$ext" "$nwt.$ext" && echo "  $ext file moved"
+  done
   rm -f "$nwt/$old.code-workspace"
   write_standalone_ws "$new" "$finalbranch" "$nwt"
 

@@ -79,7 +79,7 @@ shared services come from the fixed table `services.sh` owns. So `3017` reads as
 
 ## `exceptions.txt` — what needs cleaning up
 
-A report, not a nag: empty (header row only) when there's nothing to flag. Four checks,
+A report, not a nag: empty (header row only) when there's nothing to flag. Five checks,
 each one discovered live rather than designed up front:
 
 | `TYPE` | What it means |
@@ -88,6 +88,15 @@ each one discovered live rather than designed up front:
 | `NAME-MISMATCH` | An `ops-*`/`prj-*` session (one Claude name for its whole life) whose Claude session name has drifted from its tmux session name. |
 | `STRAY-SESSION` | A `word-HHMMSS` tmux session — VS Code or a bare `cct` created it and nobody named it. None of this setup's real conventions produce that shape. |
 | `STALE-DIR` | An `aih-wt-*` directory with no `.git` — a `git worktree move` leftover (the old path had an open file handle), not a real worktree. |
+| `DIRTY-WORKTREE` | An `aih-wt-*` worktree with uncommitted/untracked changes. Purely informational — normal mid-task state — but it's exactly the thing that has to be checked before any teardown. Found the hard way 2026-08-31: `wt-im-soa`'s entire Phase 1 pilot deliverable (~180 files) sat untracked-only for days with nothing surfacing it. |
+
+**"Is this slot's branch already merged, should it be torn down?" is deliberately NOT one of
+these five.** That check needs network calls (`git fetch`, `gh pr list`) that don't belong in a
+job running unattended every 30 minutes, and "merged" is a candidate for DD to look at, not a fact
+a script can safely act on — `wt-77` looked exactly like a merge candidate (0 commits ahead of
+main) on 2026-08-31 and was in fact deliberately kept open per its own project's `up_next` note.
+Run **`wt audit`** by hand (or ask an agent to) for that report instead — it prints ahead-count,
+dirty/clean, and PR state per slot, and never tears anything down itself.
 
 ---
 

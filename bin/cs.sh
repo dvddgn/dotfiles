@@ -316,11 +316,26 @@ write_exceptions() {
   # Stale: looks like a worktree by path but has no .git - a git worktree move
   # leftover (see wt.sh's own .git guard, added after this shape stood up four
   # bogus tmux sessions on 2026-08-30) or some other manual leftover.
-  local d
+  #
+  # Dirty: a real worktree with uncommitted/untracked changes sitting in it. Purely
+  # informational - normal mid-task state, not a problem on its own - but the thing
+  # that makes a worktree teardown (`wt done`/`wt rm`) actually safe to run is
+  # knowing this BEFORE you run it. Found the hard way on 2026-08-31: wt-im-soa's
+  # entire Phase 1 pilot deliverable (~180 files) sat as untracked-only for days
+  # with nothing surfacing it, and would have been silently destroyed by a careless
+  # teardown. No network calls, no judgment about WHY it's dirty - see `wt audit`
+  # for the "should this be torn down" question, which needs both.
+  local d dirty_n
   for d in "$HOME"/code/dvddgn/aih-wt-*/; do
     d="${d%/}"
-    [[ -e "$d/.git" ]] && continue
-    printf 'STALE-DIR\t%s\tno .git - not a real worktree\n' "$d" >> "$tmp"
+    if [[ ! -e "$d/.git" ]]; then
+      printf 'STALE-DIR\t%s\tno .git - not a real worktree\n' "$d" >> "$tmp"
+      n=$((n + 1))
+      continue
+    fi
+    dirty_n=$(git -C "$d" status --short 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$dirty_n" -gt 0 ]] || continue
+    printf 'DIRTY-WORKTREE\t%s\t%s uncommitted/untracked file(s) - check before any teardown\n' "$d" "$dirty_n" >> "$tmp"
     n=$((n + 1))
   done
 

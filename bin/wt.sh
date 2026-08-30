@@ -17,6 +17,7 @@
 #   wt rename <old-slug> <new-slug> [new-branch]
 #   wt rm     <slug> [--force]
 #   wt ls
+#   wt audit
 #
 # Examples:
 #   wt new dropzone                                  # branch feature/dropzone off origin/main
@@ -731,6 +732,53 @@ cmd_ls() {
   done
 }
 
+# `wt audit` is deliberately NOT part of `cs snapshot`'s exceptions.txt (which runs
+# unattended every 30 minutes via launchd). Two reasons: it needs network calls
+# (`git fetch`, `gh pr list`) that don't belong in a fast, frequent, offline-safe
+# job, and "merged" is a candidate for a human to look at, not a fact a script can
+# safely act on - `wt-77` looked exactly like a merge candidate (0 commits ahead of
+# main) on 2026-08-31 and was in fact deliberately kept open per its project's
+# own up_next note ("wt-77 stays available for future profile-77 work"). Run this
+# by hand, or ask an agent to, when doing a periodic worktree cleanup pass - never
+# let anything tear a slot down off the back of it without DD confirming per slot.
+cmd_audit() {
+  local wt slug branch dirty ahead pr_line
+  shopt -s nullglob
+  echo "Fetching origin/main..."
+  git -C "$PARENT" fetch origin main --quiet 2>/dev/null
+  printf '%-16s %-46s %-6s %-10s %s\n' "SLUG" "BRANCH" "AHEAD" "DIRTY" "PR STATE"
+  for wt in "$BASE"/aih-wt-*/; do
+    wt="${wt%/}"
+    [[ -e "$wt/.git" ]] || continue
+    slug="${wt##*/aih-wt-}"
+    branch=$(git -C "$wt" branch --show-current 2>/dev/null || echo '?')
+    ahead=$(git -C "$wt" rev-list --count "origin/main..$branch" 2>/dev/null || echo '?')
+    dirty=$(git -C "$wt" status --short 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$dirty" == "0" ]] && dirty="clean" || dirty="$dirty file(s)"
+    pr_line=$(cd "$wt" && gh pr list --head "$branch" --state all --json number,state,mergedAt 2>/dev/null \
+      | python3 -c "
+import json,sys
+try:
+  d = json.load(sys.stdin)
+except Exception:
+  d = []
+if not d:
+  print('no PR')
+else:
+  p = d[0]
+  state = 'MERGED' if p.get('mergedAt') else p['state']
+  print(f\"#{p['number']} {state}\")
+" 2>/dev/null)
+    [[ -z "$pr_line" ]] && pr_line="? (gh error)"
+    printf '%-16s %-46s %-6s %-10s %s\n' "$slug" "$branch" "$ahead" "$dirty" "$pr_line"
+  done
+  echo
+  echo "AHEAD=0 + MERGED/no-PR is a candidate to review for 'wt done <slug>' - check the"
+  echo "slug's Workspace project up_next first, it may be deliberately kept open."
+  echo "DIRTY != clean means uncommitted work sits in that slot - commit or stash it"
+  echo "before any teardown, or it will be lost."
+}
+
 case "${1:-}" in
   new)    shift; cmd_new "$@" ;;
   agent)  shift; cmd_agent "$@" ;;
@@ -739,6 +787,7 @@ case "${1:-}" in
   rename) shift; cmd_rename "$@" ;;
   rm)     shift; cmd_rm "$@" ;;
   ls)     shift; cmd_ls "$@" ;;
+  audit)  shift; cmd_audit "$@" ;;
   ""|-h|--help) usage ;;
-  *) die "unknown command '$1' (use new, agent, restore, done, rename, rm or ls)" ;;
+  *) die "unknown command '$1' (use new, agent, restore, done, rename, rm, ls or audit)" ;;
 esac

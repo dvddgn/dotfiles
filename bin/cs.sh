@@ -117,7 +117,7 @@ for i, line in enumerate(open(mapfile)):
         continue
     rows.append((parts[0], parts[1]))
 
-KEEP_EXTRA = {"orchestrator", "wt-scoping"}
+KEEP_EXTRA = {"orchestrator"}  # doesn't start with ops-/wt-/prj-, so it needs listing explicitly
 def earns(sess):
     # ops- (standing subjects), wt- (slots) and prj- (project sessions) are all
     # long-lived and subject-named. prj- was left out originally to keep the list

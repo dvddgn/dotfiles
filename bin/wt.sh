@@ -55,7 +55,6 @@ BASE="$HOME/code/dvddgn"
 # and its own checkout should stay on main and idle. Override for a different
 # clone or repo - existing slots stay bound to whichever parent created them.
 PARENT="${AIH_PARENT:-$BASE/advice-innovation-hub-m1}"
-WSFILE="$BASE/aih-worktrees.code-workspace"
 SERVICES="$BASE/services.sh"
 CS="$BASE/cs.sh"
 
@@ -81,38 +80,6 @@ assert_outside() {
 }
 
 # ---- workspace file -----------------------------------------------------------
-# The entry goes at the TOP of folders so the newest slot is the first thing in
-# the Source Control panel. Editing this file while the window is open adds the
-# folder with no reload.
-ws_add() {
-  local slug=$1 branch=$2
-  [[ -f "$WSFILE" ]] || { echo "  (no $WSFILE — skipping registration)"; return 0; }
-  python3 - "$WSFILE" "$slug" "$branch" <<'PY'
-import json, sys
-path, slug, branch = sys.argv[1:4]
-ws = json.load(open(path))
-entry = {"name": f"{slug} · {branch.removeprefix('feature/')}", "path": f"aih-wt-{slug}"}
-ws["folders"] = [f for f in ws["folders"] if f.get("path") != entry["path"]]
-ws["folders"].insert(0, entry)
-open(path, "w").write(json.dumps(ws, indent=2, ensure_ascii=False) + "\n")
-print(f"  registered as \"{entry['name']}\"")
-PY
-}
-
-ws_remove() {
-  local slug=$1
-  [[ -f "$WSFILE" ]] || return 0
-  python3 - "$WSFILE" "$slug" <<'PY'
-import json, sys
-path, slug = sys.argv[1:3]
-ws = json.load(open(path))
-before = len(ws["folders"])
-ws["folders"] = [f for f in ws["folders"] if f.get("path") != f"aih-wt-{slug}"]
-open(path, "w").write(json.dumps(ws, indent=2, ensure_ascii=False) + "\n")
-print("  workspace entry removed" if len(ws["folders"]) < before else "  (no workspace entry)")
-PY
-}
-
 # A small .code-workspace INSIDE the worktree, purely so `code <path>.code-workspace`
 # opens it as its own window with a real title - "wt · <slug>" in the macOS Window
 # menu and the title bar - instead of the bare folder name a plain `code <path>`
@@ -252,12 +219,20 @@ link_memory() {
 # ---- new ----------------------------------------------------------------------
 # The terminal-profile list - the entries in VS Code's terminal dropdown that drop
 # you straight into a slot's tmux session - is GENERATED from the live tmux
-# sessions by cs.sh, never written entry by entry. ws_add/ws_remove above maintain
-# the FOLDER entry, which is a different list in the same file, so creating or
-# removing a slot used to leave the dropdown exactly one session out of date until
-# someone ran `cs snapshot` by hand, and nobody does: `wt done` reported "workspace
-# entry removed" while leaving a profile pointing at a session it had just killed.
-# Regenerating here keeps the two lists in step with each other.
+# sessions by cs.sh, never written entry by entry, so a slot appearing or
+# disappearing leaves the dropdown out of date until something runs `cs snapshot`.
+# Do it here rather than leaving it to be noticed later.
+#
+# A slot no longer earns a FOLDER entry anywhere - it gets its own standalone
+# window (write_standalone_ws + code, below) instead of living inside the shared
+# aih-worktrees.code-workspace alongside every other slot. That file grew to
+# 15+ full worktree roots, and VS Code's git-status polling and file watching
+# cost scales with the total size of every root open in one window - a real,
+# measured slowdown on git diffs and PR review, not a hypothetical one. Fixed
+# 2026-08-30 by giving every active repo (worktrees, m1, claw, workspace-app,
+# hre, ...) its own dedicated window and leaving the shared file for genuinely
+# lightweight reference-only folders (dotfiles, agent-skills, Claude config,
+# Drive folders) that carry none of that cost.
 #
 # Quiet on purpose. This is a side effect of the command the caller actually asked
 # for, and cs.sh prints half a dozen lines about Claude sessions and listening
@@ -318,7 +293,6 @@ cmd_new() {
     cp -Rc "$PARENT/node_modules" "$wt/node_modules" && echo "  node_modules cloned (copy-on-write)"
   fi
 
-  ws_add "$slug" "$branch"
   write_standalone_ws "$slug" "$branch" "$wt"
   link_memory "$wt"
 
@@ -414,7 +388,6 @@ cmd_rm() {
     tmux kill-session -t "$session" && echo "  tmux session killed"
   fi
 
-  ws_remove "$slug"
   refresh_profiles
   rm -f "$wt.port" && echo "  port file removed"
   # A brief/context file lives BESIDE the worktree so `git worktree remove`
@@ -650,8 +623,6 @@ cmd_rename() {
   rm -f "$nwt/$old.code-workspace"
   write_standalone_ws "$new" "$finalbranch" "$nwt"
 
-  ws_remove "$old" >/dev/null
-  ws_add "$new" "$finalbranch"
   refresh_profiles
 
   cat <<EOF

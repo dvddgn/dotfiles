@@ -7,28 +7,49 @@
 #   ./startup.sh aih c1 ws    # start specific sessions
 #   ./startup.sh --list       # show available session names
 #   ./startup.sh --status     # show running tmux sessions
+#
+# The session list, each one's directory, and its extra windows all come from
+# core-sessions.txt (beside this script) rather than being hard-coded here -
+# add a line there for a new standing session and this script picks it up
+# with no code change. cs.sh's `ensure_core_sessions()` reads the exact same
+# file for the safe (create-only-if-missing) path; this script stays the
+# unconditional kill-and-recreate one, so it must only ever be run by hand,
+# right after a confirmed reboot or when a session is deliberately being reset
+# — never automatically, and never with live work still in it.
+
+CORE_SESSIONS="$HOME/code/dvddgn/dotfiles/core-sessions.txt"
+
+typeset -A SESSION_DIR SESSION_EXTRA
+ALL_SESSIONS=()
+
+load_core_sessions() {
+  local name dir extra
+  while IFS='|' read -r name dir extra; do
+    name="${name// /}"
+    [[ -z "$name" || "$name" == \#* ]] && continue
+    # Trim ALL leading/trailing whitespace, not just one space - the file pads
+    # columns for readability, and a single-space trim silently left a
+    # trailing space on the directory, which made `-c "$DIR"` reference a
+    # path that doesn't exist and made tmux fall back to $HOME instead of
+    # erroring - caught by checking pane_current_path after a real test run,
+    # not by the tmux commands themselves, which failed silently.
+    dir="${dir#"${dir%%[![:space:]]*}"}"; dir="${dir%"${dir##*[![:space:]]}"}"
+    extra="${extra#"${extra%%[![:space:]]*}"}"; extra="${extra%"${extra##*[![:space:]]}"}"
+    case "$dir" in
+      "~"*) dir="${dir/#\~/$HOME}" ;;
+      /*) : ;;
+      *) dir="$HOME/code/dvddgn/$dir" ;;
+    esac
+    SESSION_DIR[$name]="$dir"
+    SESSION_EXTRA[$name]="$extra"
+    ALL_SESSIONS+=("$name")
+  done < "$CORE_SESSIONS"
+}
+load_core_sessions
 
 get_dir() {
-  case "$1" in
-    aih)  echo "$HOME/code/dvddgn/advice-innovation-hub" ;;
-    c1)   echo "$HOME/code/dvddgn/advice-innovation-hub-clone-1" ;;
-    c2)   echo "$HOME/code/dvddgn/advice-innovation-hub-clone-2" ;;
-    c3)   echo "$HOME/code/dvddgn/advice-innovation-hub-clone-3" ;;
-    c4)   echo "$HOME/code/dvddgn/advice-innovation-hub-clone-4" ;;
-    c5)   echo "$HOME/code/dvddgn/advice-innovation-hub-clone-5" ;;
-    m1)   echo "$HOME/code/dvddgn/advice-innovation-hub-m1" ;;
-    m2)   echo "$HOME/code/dvddgn/advice-innovation-hub-m2" ;;
-    m3)   echo "$HOME/code/dvddgn/advice-innovation-hub-m3" ;;
-    m4)   echo "$HOME/code/dvddgn/advice-innovation-hub-m4" ;;
-    m5)   echo "$HOME/code/dvddgn/advice-innovation-hub-m5" ;;
-    ws)   echo "$HOME/code/dvddgn/workspace-app" ;;
-    hre)  echo "$HOME/code/dvddgn/horizons-real-estate" ;;
-    claw) echo "$HOME/.openclaw/workspace" ;;
-    *)    echo "" ;;
-  esac
+  echo "${SESSION_DIR[$1]:-}"
 }
-
-ALL_SESSIONS=(aih c1 c2 c3 c4 c5 m1 m2 m3 m4 m5 ws hre claw)
 
 # Handle flags
 case "$1" in
@@ -79,30 +100,19 @@ for SESSION in "${SESSIONS[@]}"; do
   # Create session — first window is a shell
   tmux new-session -d -s "$SESSION" -n "shell" -c "$DIR"
 
-  # Add service windows based on session type
-  case "$SESSION" in
-    aih|c1|c2|c3|c4|c5|m1|m2|m3|m4|m5)
-      # Rails apps — rails, sidekiq, vite (not started, ready to go)
-      tmux new-window -t "$SESSION" -n "rails" -c "$DIR"
-      tmux new-window -t "$SESSION" -n "sidekiq" -c "$DIR"
-      tmux new-window -t "$SESSION" -n "vite" -c "$DIR"
-      ;;
-    ws)
-      # Health check (auto-starts)
-      tmux new-window -t "$SESSION" -n "health" -c "$DIR"
-      tmux send-keys -t "${SESSION}:health" "./ai-builder/scripts/health-check.sh" C-m
-      # Next.js app — dev server (not started)
-      tmux new-window -t "$SESSION" -n "localhost" -c "$DIR"
-      ;;
-    hre)
-      # Horizons Real Estate (Rails 8.1) — rails + tailwind watch (not started, ready to go)
-      tmux new-window -t "$SESSION" -n "rails" -c "$DIR"
-      tmux new-window -t "$SESSION" -n "css" -c "$DIR"
-      ;;
-    claw)
-      # No services — just agents
-      ;;
-  esac
+  # Extra windows specific to this session, from core-sessions.txt. A window
+  # can auto-run a command on creation: "name:command" instead of a bare
+  # "name" (ws's health-check is the worked example in the file itself).
+  local extra="${SESSION_EXTRA[$SESSION]}"
+  if [[ -n "$extra" ]]; then
+    for item in "${(s:,:)extra}"; do
+      [[ -z "$item" ]] && continue
+      wname="${item%%:*}"
+      if [[ "$item" == *:* ]]; then wcmd="${item#*:}"; else wcmd=""; fi
+      tmux new-window -t "$SESSION" -n "$wname" -c "$DIR"
+      [[ -n "$wcmd" ]] && tmux send-keys -t "${SESSION}:${wname}" "$wcmd" C-m
+    done
+  fi
 
   # Claude Code agent windows (not started — type cc or cc --resume <name> to start)
   tmux new-window -t "$SESSION" -n "cc1" -c "$DIR"

@@ -17,6 +17,7 @@
 #                            # also writes tmux-inventory.tsv (all sessions+windows)
 #                            # and servers.tsv (everything listening, and which slot owns it)
 #   cs restore               # after a reboot: rebuild those sessions
+#   cs iterm                 # restore + resume agents + one iTerm2 tab per session
 #
 # Transcripts live under ~/.claude/projects and outlive the directory itself, so a
 # session whose worktree or terminal is gone is still here and still resumable.
@@ -151,7 +152,7 @@ def rewrite(path, keep, label):
     # Drop previously generated per-session entries, keep everything hand-written.
     for k in [k for k, v in profs.items()
               if isinstance(v, dict) and any("new-session -A -s" in a for a in v.get("args", []))
-              and k not in ("tmux-fresh",)]:
+              and k not in ("tmux-fresh", "_tmux-fresh")]:
         del profs[k]
     profs.update(keep)
     # tmux-pick used to live here: bare `tmux attach`, which despite the name
@@ -160,8 +161,9 @@ def rewrite(path, keep, label):
     # and anything filed in the other workspace) are reached by name from a plain
     # shell, which is what you would type anyway.
     profs.pop("tmux-pick", None)
-    profs["zsh-plain"] = {"path": "/bin/zsh"}
-    for hide in ("bash", "zsh", "tmux"):
+    profs.pop("zsh-plain", None)
+    profs["_zsh-plain"] = {"path": "/bin/zsh"}
+    for hide in ("bash", "zsh", "tmux", "JavaScript Debug Terminal"):
         profs[hide] = None
     ws["settings"]["terminal.integrated.profiles.osx"] = dict(
         sorted(profs.items(), key=lambda kv: (kv[1] is None, kv[0])))
@@ -346,9 +348,136 @@ cmd_restore_tmux() {
   echo "$rebuilt rebuilt, $skipped already up. Agents are not resumed - the lines above do that."
 }
 
+# ---- iterm ----------------------------------------------------------------------
+# One tab per live tmux session, in a single iTerm2 window, named after the tmux
+# session itself - no translation table, because there is no such thing as a label
+# more stable or less ambiguous than the session's own name. A lookup keyed by
+# working directory (an earlier version of this read the two .code-workspace
+# files' folder names) breaks the moment two sessions share a directory - which
+# every ops-*/prj-* session does, all living in ~/.openclaw/workspace - so they
+# all collapsed onto one label. The fix is a naming convention, not a smarter
+# join: name the tmux session well (`wt-<slug>`, `ops-<subject>`, `prj-<subject>`,
+# or a bare name for a core dev/env session) and the tab name takes care of
+# itself. The Claude session name is a separate piece of metadata with a
+# different job - see cmd_restore_tmux - and is never shown on the tab.
+#
+# iTerm2's tmux control mode (-CC) only tabs together the WINDOWS inside one
+# session; two different sessions always need separate windows, no setting changes
+# that. A plain `tmux attach` per tab sidesteps it entirely and matches how the VS
+# Code terminal profiles already work - one profile, one session, one tab.
+#
+# Depends on two settings on iTerm2's "Default" profile: "Applications in terminal
+# may change the title" OFF, Title Components including Session Name (found by
+# trial to be value 3 in this iTerm2 version). Without them the tab reverts to
+# showing the foreground process name - usually just "tmux" - a few seconds after
+# the name below is set. These live in a plist, not just the Preferences UI, so
+# ensure_iterm_profile() checks and repairs them on every run instead of relying
+# on a one-time manual click that a future iTerm2 update could silently reset.
+ensure_iterm_profile() {
+  local plist="$HOME/Library/Preferences/com.googlecode.iterm2.plist"
+  local idx allow comps
+  read -r idx allow comps < <(python3 -c "
+import plistlib
+with open('$plist', 'rb') as f:
+    data = plistlib.load(f)
+for i, p in enumerate(data.get('New Bookmarks', [])):
+    if p.get('Name') == 'Default':
+        print(i, p.get('Allow Title Setting'), p.get('Title Components'))
+        break
+")
+  [[ -z "$idx" ]] && { echo "  (Default iTerm2 profile not found - skipping profile check)"; return; }
+  if [[ "$allow" == "False" && "$comps" == "3" ]]; then
+    return
+  fi
+  echo "  Default iTerm2 profile's title settings drifted - repairing (Allow Title Setting=false, Title Components=3)"
+  /usr/libexec/PlistBuddy -c "Set :New\ Bookmarks:$idx:Allow\ Title\ Setting false" "$plist" 2>/dev/null
+  /usr/libexec/PlistBuddy -c "Set :New\ Bookmarks:$idx:Title\ Components 3" "$plist" 2>/dev/null
+  echo "  Fixed - if tab names still don't stick, quit and relaunch iTerm2 once (it caches prefs at launch)."
+}
+
+cmd_iterm_restore() {
+  ensure_iterm_profile
+
+  # Worktree sessions need their full 7-window layout (claude/claude2/claude3/
+  # rails/sidekiq/vite/shell) rebuilt, which only wt.sh knows how to do - this
+  # script's own restore below only ever creates a single bare window. wt.sh's
+  # restore is safe to call unconditionally: it checks `tmux has-session` per
+  # worktree before touching anything, same as this function's own restore does.
+  # NEVER substitute `up` (startup.sh) here or call it from any automated path -
+  # it unconditionally kills and recreates whatever session name you give it,
+  # live work and all, with no existence check. It only belongs right after DD
+  # has confirmed an actual reboot, run by hand, never by an agent on his behalf.
+  if [[ -x "$HOME/code/dvddgn/wt.sh" ]]; then
+    "$HOME/code/dvddgn/wt.sh" restore
+  fi
+
+  # Recreate anything else a reboot took with it. Deliberately NOT auto-resumed,
+  # same reasoning wt.sh's own restore states for worktrees: resuming a session
+  # can be real work, not just a free re-hydration - an idle resume costs
+  # nothing, but the first turn after a cold resume is priced at full input-
+  # token rate (the prompt cache is long expired by the time anyone reboots),
+  # and a handful of these are autonomous/scheduled agents that may act
+  # immediately on resume rather than sit idle. Print the commands, same as
+  # `cs restore` alone does, and let DD choose which to actually run and when.
+  cmd_restore_tmux
+
+  osascript -e 'tell application "iTerm2" to activate' >/dev/null 2>&1
+  local win_count
+  win_count=$(osascript -e 'tell application "iTerm2" to count windows' 2>/dev/null || echo 0)
+  [[ "$win_count" -gt 0 ]] || osascript -e 'tell application "iTerm2" to create window with default profile' >/dev/null 2>&1
+  # A stable reference grabbed once, so a mid-loop focus change (a dialog, a click)
+  # can't send later tabs or names to the wrong window - "current window" would.
+  local win_id
+  win_id=$(osascript -e 'tell application "iTerm2" to id of current window')
+  local start_tab
+  start_tab=$(osascript -e "tell application \"iTerm2\" to tell window id $win_id to count tabs")
+
+  local -a sessions=()
+  local sess
+  # Tab order is creation order - iTerm2 has no "sort tabs" scripting command, so
+  # this `sort` is the only lever. Sorted names cluster by shared prefix for free
+  # (ops-*, prj-*, wt-* each land together); a session named for a sub-group
+  # (`wt-im-76`) sorts inside its category the same way, no code change needed.
+  while IFS= read -r sess; do
+    # Stray sess-HHMMSS-style sessions from a VS Code restart, not a real work
+    # slot - see the tmux skill's cleanup section. Never worth a tab.
+    [[ "$sess" =~ ^m1-[0-9]{6}$ ]] && continue
+    sessions+=("$sess")
+    osascript -e "
+    tell application \"iTerm2\"
+      tell window id $win_id
+        set newTab to (create tab with default profile)
+        tell current session of newTab
+          write text \"tmux attach -t $sess\"
+        end tell
+      end tell
+    end tell
+    " >/dev/null 2>&1
+    sleep 0.4
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null | sort)
+
+  # A name set right after creation gets clobbered once the shell inside finishes
+  # starting up and reports its own title - give it a few seconds to settle before
+  # naming, or the label silently reverts to "tmux".
+  sleep 4
+  local i tab
+  for i in "${!sessions[@]}"; do
+    tab=$((start_tab + i + 1))
+    osascript -e "
+    tell application \"iTerm2\"
+      tell window id $win_id
+        tell current session of tab $tab to set name to \"${sessions[$i]}\"
+      end tell
+    end tell
+    " >/dev/null 2>&1
+  done
+  echo "${#sessions[@]} tabs opened in iTerm2, named after their tmux session."
+}
+
 # ---- resume -------------------------------------------------------------------
 [[ "${1:-}" == "snapshot" ]] && { cmd_snapshot; exit 0; }
 [[ "${1:-}" == "restore"  ]] && { cmd_restore_tmux; exit 0; }
+[[ "${1:-}" == "iterm"    ]] && { cmd_iterm_restore; exit 0; }
 
 if [[ "${1:-}" == "r" || "${1:-}" == "resume" ]]; then
   shift

@@ -125,8 +125,6 @@ alias cx="codex --dangerously-bypass-approvals-and-sandbox"
 # up m1 --no-code      → tmux only, no VS Code
 alias up="~/code/dvddgn/startup.sh"
 
-# Open a project in tmux with Claude Code + context
-alias op="~/code/dvddgn/workspace-app/ai-builder/scripts/open-project.sh"
 
 # List all named Claude Code sessions across all folders
 alias sess="~/code/dvddgn/workspace-app/ai-builder/scripts/sessions.sh"

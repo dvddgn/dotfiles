@@ -637,6 +637,15 @@ cmd_restore() {
   shopt -s nullglob
   for wt in "$BASE"/aih-wt-*/; do
     wt="${wt%/}"
+    # A directory matching the glob is not necessarily a real worktree - a
+    # `git worktree move` whose old path still had an open file (a running
+    # rails/sidekiq/vite server's log or pid file) can leave a `.vite`-cache
+    # husk behind with no `.git` file, indistinguishable from a real slot by
+    # name alone. Cost a real bug: this loop treated four such leftovers from
+    # a batch of `wt rename` calls as live slots and stood up bogus tmux
+    # sessions for them (found and cleaned up 2026-08-30). `git worktree list`
+    # is the only source of truth for what is actually a worktree.
+    [[ -e "$wt/.git" ]] || continue
     slug="${wt##*/aih-wt-}"
     [[ -n "$slug_filter" && "$slug" != "$slug_filter" ]] && continue
     found=$((found + 1))

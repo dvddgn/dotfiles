@@ -496,18 +496,22 @@ cmd_iterm_restore() {
   cmd_snapshot
 
   osascript -e 'tell application "iTerm2" to activate' >/dev/null 2>&1
-  local win_count
-  win_count=$(osascript -e 'tell application "iTerm2" to count windows' 2>/dev/null || echo 0)
-  [[ "$win_count" -gt 0 ]] || osascript -e 'tell application "iTerm2" to create window with default profile' >/dev/null 2>&1
-  # A stable reference grabbed once, so a mid-loop focus change (a dialog, a click)
-  # can't send later tabs or names to the wrong window - "current window" would.
-  local win_id
-  win_id=$(osascript -e 'tell application "iTerm2" to id of current window')
-  local start_tab
-  start_tab=$(osascript -e "tell application \"iTerm2\" to tell window id $win_id to count tabs")
 
-  local -a sessions=()
-  local sess
+  # Two windows, not one: Personal (claw plus every ops-*/prj-* session, all of
+  # which live inside ~/.openclaw/workspace) and Work (everything else). DD's
+  # own split (2026-08-30) - a glance at the Dock/Window menu tells personal
+  # apart from AIH/client work, rather than scanning one 30-plus-tab list for
+  # where one ends and the other begins. iTerm2 windows have no settable,
+  # persistent custom name (tried; only tab names stick), so the window titles
+  # just show whichever tab is focused - the grouping is what matters, not a
+  # label on the window chrome.
+  local work_win personal_win
+  work_win=$(osascript -e 'tell application "iTerm2" to id of (create window with default profile)')
+  personal_win=$(osascript -e 'tell application "iTerm2" to id of (create window with default profile)')
+
+  local -a sessions=() win_ids=() tab_ids=()
+  local -i work_n=1 personal_n=1   # each window starts with one throwaway blank tab
+  local sess win_id n
   # Tab order is creation order - iTerm2 has no "sort tabs" scripting command, so
   # this `sort` is the only lever. Sorted names cluster by shared prefix for free
   # (ops-*, prj-*, wt-* each land together); a session named for a sub-group
@@ -516,7 +520,12 @@ cmd_iterm_restore() {
     # Stray sess-HHMMSS-style sessions from a VS Code restart, not a real work
     # slot - see the tmux skill's cleanup section. Never worth a tab.
     [[ "$sess" =~ ^m1-[0-9]{6}$ ]] && continue
-    sessions+=("$sess")
+    if [[ "$sess" == "claw" || "$sess" == ops-* || "$sess" == prj-* ]]; then
+      win_id=$personal_win; personal_n=$((personal_n + 1)); n=$personal_n
+    else
+      win_id=$work_win; work_n=$((work_n + 1)); n=$work_n
+    fi
+    sessions+=("$sess"); win_ids+=("$win_id"); tab_ids+=("$n")
     osascript -e "
     tell application \"iTerm2\"
       tell window id $win_id
@@ -534,18 +543,25 @@ cmd_iterm_restore() {
   # starting up and reports its own title - give it a few seconds to settle before
   # naming, or the label silently reverts to "tmux".
   sleep 4
-  local i tab
+  local i
   for i in "${!sessions[@]}"; do
-    tab=$((start_tab + i + 1))
     osascript -e "
     tell application \"iTerm2\"
-      tell window id $win_id
-        tell current session of tab $tab to set name to \"${sessions[$i]}\"
+      tell window id ${win_ids[$i]}
+        tell current session of tab ${tab_ids[$i]} to set name to \"${sessions[$i]}\"
       end tell
     end tell
     " >/dev/null 2>&1
   done
-  echo "${#sessions[@]} tabs opened in iTerm2, named after their tmux session."
+
+  # Each window's leftover blank tab 1 (from `create window`) closes last, once
+  # real content exists elsewhere in the window - tab names travel with the
+  # session object, not its index, so closing tab 1 just renumbers everything
+  # else down by one without touching what was just named.
+  osascript -e "tell application \"iTerm2\" to tell window id $work_win to if (count of tabs) > 1 then close tab 1" >/dev/null 2>&1
+  osascript -e "tell application \"iTerm2\" to tell window id $personal_win to if (count of tabs) > 1 then close tab 1" >/dev/null 2>&1
+
+  echo "${#sessions[@]} tabs opened across 2 iTerm2 windows (Work / Personal), named after their tmux session."
 }
 
 # ---- one tab, on demand ---------------------------------------------------------

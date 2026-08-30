@@ -407,7 +407,7 @@ cmd_restore_tmux() {
     # A kebab-case title is a name passed to `claude -n`, so --resume takes it.
     # Anything with spaces is a generated summary; fall back to finding it by text.
     if [[ "$title" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
-      echo "  $sess: rebuilt — resume: tmux send-keys -t $sess 'claude --resume $title' C-m"
+      echo "  $sess: rebuilt — resume: tmux send-keys -t $sess 'cc --resume $title' C-m"
     else
       echo "  $sess: rebuilt — unnamed; find it with: cd $cwd && cs -g '${title%% *}'"
     fi

@@ -703,7 +703,7 @@ cmd_restore() {
     proj="$HOME/.claude/projects/$(echo "$wt" | sed 's|/|-|g')"
     latest=$(ls -t "$proj"/*.jsonl 2>/dev/null | head -1)
     if [[ -n "$latest" ]]; then
-      echo "     resume: cd $wt && claude --resume $(basename "$latest" .jsonl)"
+      echo "     resume: cd $wt && cc --resume $(basename "$latest" .jsonl)"
     fi
   done
 

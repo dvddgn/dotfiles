@@ -148,11 +148,23 @@ vs() {
     ws)   code "$base/workspace-app/ws.code-workspace" ;;
     hre)  code "$base/horizons-real-estate/hre.code-workspace" ;;
     claw) code "$HOME/.openclaw/workspace/claw.code-workspace" ;;
-    *)    echo "Usage: vs <aih|c1-c5|m1-m5|wt|ws|hre|claw>" ;;
+    .)
+      # For a worktree slot's own shell window, where you're already sitting in
+      # its directory and just want its standalone workspace without typing the
+      # slug - `wt new`/`wt rename` always leave exactly one *.code-workspace
+      # file at the worktree root.
+      local -a found=(*.code-workspace(N))
+      case ${#found[@]} in
+        0) echo "No *.code-workspace file in $(pwd) - not a worktree root?" ;;
+        1) code "${found[1]}" ;;
+        *) echo "Multiple *.code-workspace files here, pick one: ${found[*]}" ;;
+      esac
+      ;;
+    *)    echo "Usage: vs <aih|c1-c5|m1-m5|wt|ws|hre|claw|.>" ;;
   esac
 }
 
-# Worktree slots (worktree + .env + node_modules + workspace entry + tmux windows)
+# Worktree slots (worktree + .env + node_modules + own standalone VS Code window + tmux windows)
 # wt new <slug> [branch] [--claudes N] [--no-rails] | wt rm <slug> | wt ls
 alias wt="~/code/dvddgn/wt.sh"
 

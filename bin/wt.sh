@@ -2,11 +2,15 @@
 # wt.sh — create or tear down a complete AIH worktree slot in one command.
 #
 # A slot is: the git worktree, its .env, a copy-on-write node_modules, an entry
-# in the shared VS Code workspace, a tmux session, and the seven windows a slot
-# always ends up needing — so none of it is assembled a step at a time later.
+# in the shared VS Code workspace, a tmux session, the seven windows a slot always
+# ends up needing, its own VS Code window and an iTerm2 tab attached to the session
+# — so none of it is assembled a step at a time later. The window and the tab are
+# not optional extras: a slot exists to be worked in by hand (nothing automated
+# creates one), so it is not finished until there is somewhere to work in it.
+# --no-ui skips both, for a batch of slots or a session with no GUI.
 #
 # Usage:
-#   wt new    <slug> [branch] [--claudes N] [--no-rails]   # N defaults to 3 ($WT_CLAUDES)
+#   wt new    <slug> [branch] [--claudes N] [--no-rails] [--no-ui]  # N defaults to 3 ($WT_CLAUDES)
 #   wt agent  <slug> [window-name]
 #   wt restore [slug] [--rails]        # after a reboot: rebuild the tmux sessions
 #   wt done   <slug> [--force]
@@ -53,6 +57,7 @@ BASE="$HOME/code/dvddgn"
 PARENT="${AIH_PARENT:-$BASE/advice-innovation-hub-m1}"
 WSFILE="$BASE/aih-worktrees.code-workspace"
 SERVICES="$BASE/services.sh"
+CS="$BASE/cs.sh"
 
 die() { echo "Error: $*" >&2; exit 1; }
 
@@ -246,11 +251,12 @@ link_memory() {
 
 # ---- new ----------------------------------------------------------------------
 cmd_new() {
-  local slug="" branch="" claudes=$CLAUDES_DEFAULT start_rails=true
+  local slug="" branch="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=true
   while (($#)); do
     case "$1" in
       --claudes) claudes="${2:?--claudes needs a number}"; shift 2 ;;
       --no-rails) start_rails=false; shift ;;
+      --no-ui) open_ui=false; shift ;;
       -*) die "unknown flag $1" ;;
       *) if [[ -z "$slug" ]]; then slug=$1; elif [[ -z "$branch" ]]; then branch=$1; else die "unexpected argument $1"; fi; shift ;;
     esac
@@ -314,6 +320,42 @@ cmd_new() {
     urlline="  url       no server — start one with: srv $session rails --keep-others"
   fi
 
+  # A slot is interactive by definition - nothing automated creates one (the
+  # ai-builder loop works on a branch inside the AIH clone, and this script has no
+  # programmatic callers), so there is no "is this for a person?" to decide and no
+  # flag to make anyone decide it. Open the window and the tab every time.
+  #
+  # The asymmetry settles it: opening these when they were not wanted costs
+  # closing a window and a tab, while not opening them costs DD a slot he cannot
+  # get into and has to know was supposed to be there in order to notice. --no-ui
+  # exists for the batch case and for a session with no GUI; it is an escape
+  # hatch, not a routine choice.
+  #
+  # cs.sh degrades rather than failing when iTerm2 is unreachable, and `code` is
+  # guarded the same way - a slot must never fail to build because a window
+  # manager did not cooperate.
+  local uiline
+  if $open_ui; then
+    echo "  opening the standalone VS Code window and an iTerm2 tab"
+    if command -v code >/dev/null 2>&1; then
+      code "$wt/$slug.code-workspace" >/dev/null 2>&1 \
+        || echo "  (VS Code would not open it - by hand: code $wt/$slug.code-workspace)"
+    else
+      echo "  (no 'code' on PATH - by hand: code $wt/$slug.code-workspace)"
+    fi
+    # cs.sh prints its own by-hand instruction on every unhappy path; the exit
+    # code is only read so this summary does not claim a tab that is not there.
+    local tab_rc=0
+    [[ -x "$CS" ]] && { "$CS" tab "$session"; tab_rc=$?; }
+    if [[ $tab_rc -eq 0 ]]; then
+      uiline="  window    VS Code window and iTerm2 tab opened — drag the tab left if you want it sorted"
+    else
+      uiline="  window    VS Code window opened; the iTerm2 tab needs a hand — see the note above"
+    fi
+  else
+    uiline="  window    code $wt/$slug.code-workspace   then: cs tab $session"
+  fi
+
   # The attach command goes last and unlabelled, on its own line, because it is
   # the one line DD copies. Everything above it is reference.
   cat <<EOF
@@ -325,12 +367,10 @@ $urlline
   agent     tmux send-keys -t $session:claude 'ccp <project-slug>' C-m
   sidekiq   window is idle on purpose — only one Sidekiq may run across all clones
   vite      window is idle too — it binds 3036 exclusively; assets autoBuild without it
+$uiline
 
 Attach:
   tmux attach -t $session
-
-Standalone window (one folder, own title in the Window menu — good for review):
-  code $wt/$slug.code-workspace
 EOF
 }
 

@@ -18,6 +18,7 @@
 #                            # and servers.tsv (everything listening, and which slot owns it)
 #   cs restore               # after a reboot: rebuild those sessions
 #   cs iterm                 # restore + resume agents + one iTerm2 tab per session
+#   cs tab <session>         # one tab for one session, named after it (wt new uses this)
 #
 # Transcripts live under ~/.claude/projects and outlive the directory itself, so a
 # session whose worktree or terminal is gone is still here and still resumable.
@@ -474,10 +475,124 @@ cmd_iterm_restore() {
   echo "${#sessions[@]} tabs opened in iTerm2, named after their tmux session."
 }
 
+# ---- one tab, on demand ---------------------------------------------------------
+# `cs tab <session>` attaches ONE new iTerm2 tab to an existing tmux session and
+# names it after that session. cmd_iterm_restore above does this in bulk for every
+# live session after a reboot; this is the same thing for a session created since
+# then - which is every `wt new`, whose slot did not exist when the tab bar was
+# last built.
+#
+# Named by looking up the tmux CLIENT TTY, not by tab index. The bulk path can
+# count tabs because it created all of them itself; here a tab can be opened or
+# closed by anything in the seconds between creating and naming, so an index
+# worked out up front is a guess. The tty is exact. Take the tty set BEFORE
+# attaching and diff it afterwards, so a session that already has a client
+# attached somewhere else still resolves to the tab just created.
+#
+# iTerm2 has no scripting command to move a tab, so a tab created after the bulk
+# open always lands at the END of the tab bar rather than in sorted position.
+# That is said in the output rather than left for the caller to discover.
+#
+# Exit codes are advisory, for a caller that wants to word its own summary
+# honestly: 0 the tab exists and is named, 3 it exists but could not be named,
+# 4 iTerm2 could not be reached at all. Every one of them prints what to do by
+# hand first. `wt new` reads the code but never treats it as a failure - a slot
+# must not report failure because a window manager did not cooperate.
+cmd_iterm_tab() {
+  local sess="${1:?usage: cs tab <tmux-session>}"
+  tmux has-session -t "$sess" 2>/dev/null || { echo "  no tmux session named '$sess' - nothing to attach a tab to"; return 4; }
+  ensure_iterm_profile
+  python3 - "$sess" <<'ITERMTAB'
+import subprocess, sys, time
+
+sess = sys.argv[1]
+
+def osa(script):
+    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    return r.stdout.strip(), r.stderr.strip()
+
+def client_ttys():
+    return set(subprocess.run(["tmux", "list-clients", "-t", sess, "-F", "#{client_tty}"],
+                              capture_output=True, text=True).stdout.split())
+
+before = client_ttys()
+
+osa('tell application "iTerm2" to activate')
+count, _ = osa('tell application "iTerm2" to count windows')
+if not count:
+    # No GUI, iTerm2 absent, or automation permission refused.
+    print("  iTerm2 not reachable - open a tab yourself: tmux attach -t %s" % sess)
+    sys.exit(4)
+if count == "0":
+    osa('tell application "iTerm2" to create window with default profile')
+
+# Grabbed once: "current window" would silently retarget if focus moved between
+# creating the tab and naming it.
+win_id, _ = osa('tell application "iTerm2" to id of current window')
+if not win_id:
+    print("  could not get an iTerm2 window - open a tab yourself: tmux attach -t %s" % sess)
+    sys.exit(4)
+
+osa('''
+tell application "iTerm2"
+  tell window id %s
+    set newTab to (create tab with default profile)
+    tell current session of newTab to write text "tmux attach -t %s"
+  end tell
+end tell''' % (win_id, sess))
+
+# POLL, do not sleep a fixed amount. The tab has to get through the whole of
+# .zshrc before `tmux attach` runs, and how long that takes depends on what else
+# the machine is doing - a fixed 5s was enough when tested against a warm shell
+# and NOT enough when `wt new` opened a VS Code window at the same moment, which
+# is the exact case this is written for. It attached at about 6s and the tab went
+# unnamed. Polling costs nothing in the fast case and survives a slow one.
+fresh = set()
+deadline = time.time() + 25
+while time.time() < deadline:
+    fresh = client_ttys() - before
+    if fresh:
+        break
+    time.sleep(0.5)
+
+if not fresh:
+    print("  tab opened, but nothing attached to %s within 25s - name it by hand" % sess)
+    sys.exit(3)
+tty = sorted(fresh)[0]
+
+# Attached, but the shell is still finishing: a name set now is overwritten when
+# it reports its own title. This is the single most common way tab naming breaks.
+time.sleep(2)
+
+out, _ = osa('''
+tell application "iTerm2"
+  tell window id %s
+    repeat with i from 1 to (count of tabs)
+      if (tty of (current session of tab i)) is "%s" then
+        tell current session of tab i to set name to "%s"
+        return (i as string) & "/" & ((count of tabs) as string)
+      end if
+    end repeat
+  end tell
+  return "0/0"
+end tell''' % (win_id, tty, sess))
+
+if not out or out.startswith("0/"):
+    print("  attached to %s, but could not find its tab to name it" % sess)
+    sys.exit(3)
+
+i, total = out.split("/")
+print("  iTerm2 tab %s of %s, named '%s'" % (i, total, sess))
+if i == total:
+    print("  it is the LAST tab - drag it into place if you want it sorted; iTerm2 has no 'move tab' command")
+ITERMTAB
+}
+
 # ---- resume -------------------------------------------------------------------
 [[ "${1:-}" == "snapshot" ]] && { cmd_snapshot; exit 0; }
 [[ "${1:-}" == "restore"  ]] && { cmd_restore_tmux; exit 0; }
 [[ "${1:-}" == "iterm"    ]] && { cmd_iterm_restore; exit 0; }
+[[ "${1:-}" == "tab"      ]] && { shift; cmd_iterm_tab "$@"; exit 0; }
 
 if [[ "${1:-}" == "r" || "${1:-}" == "resume" ]]; then
   shift

@@ -108,6 +108,46 @@ print("  workspace entry removed" if len(ws["folders"]) < before else "  (no wor
 PY
 }
 
+# A small .code-workspace INSIDE the worktree, purely so `code <path>.code-workspace`
+# opens it as its own window with a real title - "wt · <slug>" in the macOS Window
+# menu and the title bar - instead of the bare folder name a plain `code <path>`
+# gives you. *.code-workspace is already in .git/info/exclude, which every worktree
+# shares with the parent's .git, so this never shows up in `git status` and needs no
+# cleanup on teardown - it goes with the directory.
+write_standalone_ws() {
+  local slug=$1 branch=$2 wt=$3
+  python3 - "$wt/$slug.code-workspace" "$slug" "$branch" <<'PY'
+import json, sys
+path, slug, branch = sys.argv[1:4]
+short = branch.removeprefix("feature/")
+ws = {
+    "folders": [{"name": f"{slug} · {short}", "path": "."}],
+    "settings": {
+        "window.title": f"wt · {slug} — ${{activeEditorShort}}",
+        "workbench.colorCustomizations": {
+            "titleBar.activeBackground": "#0f4c5c",
+            "titleBar.activeForeground": "#ffffff",
+        },
+        "window.zoomLevel": 1,
+        "terminal.integrated.hideOnStartup": "never",
+        "workbench.panel.defaultLocation": "left",
+        "terminal.integrated.profiles.osx": {
+            f"tmux-wt-{slug}": {
+                "path": "/bin/zsh",
+                "args": [
+                    "-c",
+                    f"tmux attach -t wt-{slug} 2>/dev/null || echo 'No tmux session. Run: wt restore {slug}' && exec zsh",
+                ],
+            }
+        },
+        "terminal.integrated.defaultProfile.osx": f"tmux-wt-{slug}",
+    },
+}
+open(path, "w").write(json.dumps(ws, indent=2, ensure_ascii=False) + "\n")
+print(f"  standalone workspace written ({path.split('/')[-1]})")
+PY
+}
+
 # ---- windows ------------------------------------------------------------------
 # The session shape, in one place, so `new` and `restore` cannot drift apart. The
 # names are load-bearing: services.sh drives windows called rails/sidekiq/vite,
@@ -256,6 +296,7 @@ cmd_new() {
   fi
 
   ws_add "$slug" "$branch"
+  write_standalone_ws "$slug" "$branch" "$wt"
   link_memory "$wt"
 
   make_windows "$session" "$wt" "$claudes"
@@ -287,6 +328,9 @@ $urlline
 
 Attach:
   tmux attach -t $session
+
+Standalone window (one folder, own title in the Window menu — good for review):
+  code $wt/$slug.code-workspace
 EOF
 }
 
@@ -532,6 +576,8 @@ cmd_rename() {
   }
 
   [[ -f "$owt.port" ]] && mv "$owt.port" "$nwt.port" && echo "  port file moved"
+  rm -f "$nwt/$old.code-workspace"
+  write_standalone_ws "$new" "$finalbranch" "$nwt"
 
   ws_remove "$old" >/dev/null
   ws_add "$new" "$finalbranch"
@@ -590,6 +636,13 @@ cmd_restore() {
       make_windows "$session" "$wt"
       link_memory "$wt" >/dev/null
       $start_rails && "$SERVICES" "$session" start rails --keep-others >/dev/null 2>&1
+    fi
+
+    # Backfill for slots created before standalone workspace files existed.
+    if [[ ! -f "$wt/$slug.code-workspace" ]]; then
+      local rbranch
+      rbranch=$(git -C "$wt" branch --show-current 2>/dev/null)
+      write_standalone_ws "$slug" "${rbranch:-$slug}" "$wt" >/dev/null
     fi
 
     # The transcript directory is the working directory path with / replaced by -.

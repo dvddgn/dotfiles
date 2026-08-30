@@ -145,11 +145,12 @@ make_windows() {
 # The orchestrator is not a slot: it has no checkout of its own and drives the
 # others from the parent clone, so it gets agent windows and a shell and none of
 # the service windows. Listed here so `wt restore` brings it back after a reboot
-# along with everything else - nothing else creates it.
-EXTRA_SESSIONS=(orchestrator)
+# along with everything else - nothing else creates it. Named "_orchestrator"
+# (leading underscore) so it sorts to the top of the iTerm2 tab list.
+EXTRA_SESSIONS=(_orchestrator)
 extra_session_dir() {
   case "$1" in
-    orchestrator) echo "$PARENT" ;;
+    _orchestrator) echo "$PARENT" ;;
     *) return 1 ;;
   esac
 }

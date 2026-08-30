@@ -463,6 +463,56 @@ for i, p in enumerate(data.get('New Bookmarks', [])):
   echo "  Fixed - if tab names still don't stick, quit and relaunch iTerm2 once (it caches prefs at launch)."
 }
 
+# ---- core dev/env sessions ------------------------------------------------------
+# Safe to call any time - creates a session ONLY if it's missing, unlike `up`
+# (startup.sh), which unconditionally kills and recreates whatever it's given
+# and must therefore stay a manual, deliberate, post-reboot-only step.
+#
+# Reads ~/code/dvddgn/dotfiles/core-sessions.txt: one line per session, in the
+# form `name | directory | extra windows`. Every session gets a `shell` window
+# first and `cc1,cc2,cc3,cx1` last automatically; list only what's specific to
+# it in between. A window can auto-run a command: `name:command` instead of
+# just `name` (see the file itself for the worked example). Add a row for any
+# new standing session DD wants - this function and `up` both read the same
+# file, so one entry covers both instead of hand-coding the layout twice.
+CORE_SESSIONS="$HOME/code/dvddgn/dotfiles/core-sessions.txt"
+ensure_core_sessions() {
+  [[ -f "$CORE_SESSIONS" ]] || return 0
+  local name dir extra
+  while IFS='|' read -r name dir extra; do
+    name="${name// /}"
+    [[ -z "$name" || "$name" == \#* ]] && continue
+    dir="${dir#"${dir%%[![:space:]]*}"}"; dir="${dir%"${dir##*[![:space:]]}"}"
+    extra="${extra#"${extra%%[![:space:]]*}"}"; extra="${extra%"${extra##*[![:space:]]}"}"
+
+    tmux has-session -t "$name" 2>/dev/null && continue
+
+    case "$dir" in
+      "~"*) dir="${dir/#\~/$HOME}" ;;
+      /*) : ;;
+      *) dir="$HOME/code/dvddgn/$dir" ;;
+    esac
+    [[ -d "$dir" ]] || { echo "  $name: directory not found ($dir) - skipped"; continue; }
+
+    tmux new-session -d -s "$name" -n shell -c "$dir"
+    local -a items=()
+    IFS=',' read -ra items <<< "$extra"
+    local item wname wcmd
+    for item in "${items[@]}"; do
+      [[ -z "$item" ]] && continue
+      wname="${item%%:*}"
+      [[ "$item" == *:* ]] && wcmd="${item#*:}" || wcmd=""
+      tmux new-window -t "$name" -n "$wname" -c "$dir"
+      [[ -n "$wcmd" ]] && tmux send-keys -t "$name:$wname" "$wcmd" C-m
+    done
+    for wname in cc1 cc2 cc3 cx1; do
+      tmux new-window -t "$name" -n "$wname" -c "$dir"
+    done
+    tmux select-window -t "$name:1"
+    echo "  $name: rebuilt (missing entirely - full layout from core-sessions.txt)"
+  done < "$CORE_SESSIONS"
+}
+
 cmd_iterm_restore() {
   ensure_iterm_profile
 
@@ -478,6 +528,15 @@ cmd_iterm_restore() {
   if [[ -x "$HOME/code/dvddgn/wt.sh" ]]; then
     "$HOME/code/dvddgn/wt.sh" restore
   fi
+
+  # aih/m1/ws/hre/etc. sit in neither of the other two restores: they are not
+  # worktrees (wt.sh restore doesn't know them) and cs.sh's own restore below
+  # only ever rebuilds a BARE single window from sessions.txt, which is a
+  # point-in-time reading of what had a live Claude conversation - it has no
+  # idea these sessions are supposed to have rails/sidekiq/vite windows too.
+  # This is what actually closes that gap, and it is what `up` itself should
+  # have been doing instead of hand-coding the same window list twice.
+  ensure_core_sessions
 
   # Recreate anything else a reboot took with it. Deliberately NOT auto-resumed,
   # same reasoning wt.sh's own restore states for worktrees: resuming a session

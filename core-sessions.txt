@@ -1,0 +1,29 @@
+# Core dev/env sessions - the ones NOT covered by wt.sh (worktrees discover
+# themselves from disk) or by a live Claude conversation (ops-*/prj-* are
+# recreated bare from ~/.claude/status/sessions.txt if they ever go missing).
+#
+# One line per session: name | directory | extra windows (comma-separated)
+# Every session also gets a "shell" window first and "cc1,cc2,cc3,cx1" last,
+# automatically - list only what's specific to this one here.
+#
+# A window can auto-run a command on creation: "name:command" instead of
+# just "name" (see ws's health-check below).
+#
+# Add a row here for any new standing session you want - both `up` and
+# `cs iterm`'s self-heal read this same file, so one entry covers both.
+# Directory is relative to ~/code/dvddgn/ unless it starts with ~ or /.
+
+aih  | advice-innovation-hub          | rails,sidekiq,vite
+c1   | advice-innovation-hub-clone-1  | rails,sidekiq,vite
+c2   | advice-innovation-hub-clone-2  | rails,sidekiq,vite
+c3   | advice-innovation-hub-clone-3  | rails,sidekiq,vite
+c4   | advice-innovation-hub-clone-4  | rails,sidekiq,vite
+c5   | advice-innovation-hub-clone-5  | rails,sidekiq,vite
+m1   | advice-innovation-hub-m1       | rails,sidekiq,vite
+m2   | advice-innovation-hub-m2       | rails,sidekiq,vite
+m3   | advice-innovation-hub-m3       | rails,sidekiq,vite
+m4   | advice-innovation-hub-m4       | rails,sidekiq,vite
+m5   | advice-innovation-hub-m5       | rails,sidekiq,vite
+ws   | workspace-app                  | health:./ai-builder/scripts/health-check.sh,localhost
+hre  | horizons-real-estate           | rails,css
+claw | ~/.openclaw/workspace          |

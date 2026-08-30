@@ -422,6 +422,12 @@ cmd_iterm_restore() {
   # `cs restore` alone does, and let DD choose which to actually run and when.
   cmd_restore_tmux
 
+  # Sessions have just been rebuilt with new ids, so the generated terminal-profile
+  # list in both workspace files is describing the tmux server that died. Do this
+  # after BOTH restores above, so it sees every session, not the half that existed
+  # when this started. wt.sh does the same after creating or removing one slot.
+  cmd_snapshot
+
   osascript -e 'tell application "iTerm2" to activate' >/dev/null 2>&1
   local win_count
   win_count=$(osascript -e 'tell application "iTerm2" to count windows' 2>/dev/null || echo 0)

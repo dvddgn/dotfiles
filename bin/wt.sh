@@ -250,6 +250,23 @@ link_memory() {
 }
 
 # ---- new ----------------------------------------------------------------------
+# The terminal-profile list - the entries in VS Code's terminal dropdown that drop
+# you straight into a slot's tmux session - is GENERATED from the live tmux
+# sessions by cs.sh, never written entry by entry. ws_add/ws_remove above maintain
+# the FOLDER entry, which is a different list in the same file, so creating or
+# removing a slot used to leave the dropdown exactly one session out of date until
+# someone ran `cs snapshot` by hand, and nobody does: `wt done` reported "workspace
+# entry removed" while leaving a profile pointing at a session it had just killed.
+# Regenerating here keeps the two lists in step with each other.
+#
+# Quiet on purpose. This is a side effect of the command the caller actually asked
+# for, and cs.sh prints half a dozen lines about Claude sessions and listening
+# servers that would bury the output of that command.
+refresh_profiles() {
+  [[ -x "$CS" ]] || return 0
+  "$CS" snapshot >/dev/null 2>&1 && echo "  terminal profiles refreshed"
+}
+
 cmd_new() {
   local slug="" branch="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=true
   while (($#)); do
@@ -306,6 +323,7 @@ cmd_new() {
   link_memory "$wt"
 
   make_windows "$session" "$wt" "$claudes"
+  refresh_profiles
 
   local urlline
   if $start_rails; then
@@ -397,6 +415,7 @@ cmd_rm() {
   fi
 
   ws_remove "$slug"
+  refresh_profiles
   rm -f "$wt.port" && echo "  port file removed"
   # A brief/context file lives BESIDE the worktree so `git worktree remove`
   # cannot take it with the directory - which is also why nothing else ever
@@ -633,6 +652,7 @@ cmd_rename() {
 
   ws_remove "$old" >/dev/null
   ws_add "$new" "$finalbranch"
+  refresh_profiles
 
   cat <<EOF
 

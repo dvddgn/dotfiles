@@ -77,6 +77,18 @@ shared services come from the fixed table `services.sh` owns. So `3017` reads as
 `DIRECTORY` identifies the rows `OWNER` cannot name — a stray preview server, a forgotten
 `python -m http.server`, which checkout is holding the exclusive Vite port on 3036.
 
+## `exceptions.txt` — what needs cleaning up
+
+A report, not a nag: empty (header row only) when there's nothing to flag. Four checks,
+each one discovered live rather than designed up front:
+
+| `TYPE` | What it means |
+|---|---|
+| `UNNAMED` | The scraped Claude session name isn't a real `claude -n`/`/rename` name — Claude's own transient status text, an unsent draft sitting in the input box, or an auto-generated summary. Real names are kebab-case here; can't be auto-resumed by `cs restore`/`wt restore` otherwise. |
+| `NAME-MISMATCH` | An `ops-*`/`prj-*` session (one Claude name for its whole life) whose Claude session name has drifted from its tmux session name. |
+| `STRAY-SESSION` | A `word-HHMMSS` tmux session — VS Code or a bare `cct` created it and nobody named it. None of this setup's real conventions produce that shape. |
+| `STALE-DIR` | An `aih-wt-*` directory with no `.git` — a `git worktree move` leftover (the old path had an open file handle), not a real worktree. |
+
 ---
 
 ## Naming conventions you will see

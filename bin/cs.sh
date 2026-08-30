@@ -248,6 +248,9 @@ cmd_snapshot() {
     n=$((n + 1))
   done < <(tmux list-panes -a -F "#{session_name}$(printf '\t')#{window_index}$(printf '\t')#{window_name}$(printf '\t')#{pane_current_path}" 2>/dev/null)
 
+  local exceptions_n
+  exceptions_n=$(write_exceptions "$MAP.tmp")
+
   mkdir -p "$STATUS"
   { printf 'SESSION\tDIRECTORY\tCLAUDE SESSION NAME\n'
     sort -t$'\t' -k2,2 -k1,1 "$MAP.tmp"; } | column -t -s$'\t' > "$MAP"
@@ -257,9 +260,73 @@ cmd_snapshot() {
   write_profiles
   [[ -f "$STATUS/README.md" ]] || cp "$HOME/code/dvddgn/dotfiles/status-README.md" "$STATUS/README.md" 2>/dev/null
   echo "Recorded $n live Claude session(s) -> $STATUS/"
-  printf '  %s\n' "sessions.txt  ($n)" \
-                  "windows.txt   ($(($(wc -l < "$INVENTORY") - 1)) windows)" \
-                  "servers.txt   ($(($(wc -l < "$SERVERS") - 1)) listening)"
+  printf '  %s\n' "sessions.txt    ($n)" \
+                  "windows.txt     ($(($(wc -l < "$INVENTORY") - 1)) windows)" \
+                  "servers.txt     ($(($(wc -l < "$SERVERS") - 1)) listening)" \
+                  "exceptions.txt  ($exceptions_n)"
+}
+
+# ---- exceptions -----------------------------------------------------------------
+# A place for cs snapshot to flag its own findings instead of DD (or an agent)
+# re-deriving them by hand every time, the way this file's checks were all
+# discovered live on 2026-08-30: an unnamed session scraping Claude's own
+# transient status text instead of a real name, an ops-/prj- session whose
+# Claude name drifted from its tmux session name, stray sess-HHMMSS-style
+# sessions VS Code silently creates per terminal, and stale non-worktree
+# directories `git worktree move` can leave behind when the old path still had
+# an open file handle. Empty file, zero lines of output, when there is nothing
+# to report - this is a report, not a nag.
+EXCEPTIONS="$STATUS/exceptions.txt"
+write_exceptions() {
+  local maptmp=$1 tmp n=0
+  tmp=$(mktemp)
+
+  # Unnamed: the scraped title isn't a real `claude -n`/`/rename` name - either
+  # Claude's own transient status text (e.g. "Sautéed for 2m 10s"), an unsent
+  # draft sitting in the input box at snapshot time, or a plain auto-generated
+  # summary sentence. Real names are consistently kebab-case in this setup;
+  # anything else could not be auto-resumed by `cs restore`/`wt restore`.
+  #
+  # Mismatched: an ops-*/prj-* session (a standing subject, one Claude name for
+  # its whole life) whose Claude session name has drifted from its tmux session
+  # name - only checked on the PRIMARY window (no ":" in $sess), since a second
+  # agent window is expected to be named for its own task, not the session.
+  while IFS=$'\t' read -r sess cwd title; do
+    [[ -z "$sess" ]] && continue
+    local base="${sess%%:*}"
+    if [[ ! "$title" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+      printf 'UNNAMED\t%s\tscraped: %s\n' "$sess" "$title" >> "$tmp"
+      n=$((n + 1))
+    elif [[ "$sess" != *:* && ( "$base" == ops-* || "$base" == prj-* ) && "$title" != "$base" ]]; then
+      printf 'NAME-MISMATCH\t%s\ttmux=%s claude=%s\n' "$sess" "$base" "$title" >> "$tmp"
+      n=$((n + 1))
+    fi
+  done < "$maptmp"
+
+  # Stray: a session VS Code (or `cct` with no name) created and nobody named -
+  # word plus a 6-digit HHMMSS timestamp. None of this setup's real naming
+  # conventions produce that shape, so it is always worth a second look.
+  local sess
+  while read -r sess; do
+    [[ "$sess" =~ ^[a-z][a-z0-9]*-[0-9]{6}$ ]] || continue
+    printf 'STRAY-SESSION\t%s\tsess-HHMMSS shape - probably an unnamed VS Code/cct artifact\n' "$sess" >> "$tmp"
+    n=$((n + 1))
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+
+  # Stale: looks like a worktree by path but has no .git - a git worktree move
+  # leftover (see wt.sh's own .git guard, added after this shape stood up four
+  # bogus tmux sessions on 2026-08-30) or some other manual leftover.
+  local d
+  for d in "$HOME"/code/dvddgn/aih-wt-*/; do
+    d="${d%/}"
+    [[ -e "$d/.git" ]] && continue
+    printf 'STALE-DIR\t%s\tno .git - not a real worktree\n' "$d" >> "$tmp"
+    n=$((n + 1))
+  done
+
+  { printf 'TYPE\tWHAT\tDETAIL\n'; sort "$tmp"; } | column -t -s$'\t' > "$EXCEPTIONS"
+  rm -f "$tmp"
+  echo "$n"
 }
 
 # Everything open, not just the Claude sessions: one row per tmux WINDOW, so a

@@ -244,6 +244,32 @@ refresh_profiles() {
   "$CS" snapshot >/dev/null 2>&1 && echo "  terminal profiles refreshed"
 }
 
+# Killing a tmux session does NOT close whatever iTerm2 tab was attached to it -
+# it leaves a dead plain shell behind for DD to notice and ask about later (see
+# the iterm skill's "Known fragility"). $1 is the tty captured via
+# `tmux list-clients` BEFORE the session is killed - list-clients returns
+# nothing once it's gone, so the caller must capture this first. Silent no-op
+# if there was no attached client, or iTerm2 isn't reachable at all - a slot
+# torn down from a headless/no-GUI context is not an error.
+close_iterm_tab() {
+  local tty=$1
+  [[ -n "$tty" ]] || return 0
+  osascript -e "
+  tell application \"iTerm2\"
+    repeat with w in windows
+      repeat with t in tabs of w
+        try
+          if (tty of (current session of t)) is \"$tty\" then
+            close t
+            return \"closed\"
+          end if
+        end try
+      end repeat
+    end repeat
+  end tell
+  " 2>/dev/null | grep -q closed
+}
+
 cmd_new() {
   local slug="" branch="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=true
   while (($#)); do
@@ -385,9 +411,12 @@ cmd_rm() {
   echo "Removing slot '$slug'"
 
   if tmux has-session -t "$session" 2>/dev/null; then
+    local tty
+    tty=$(tmux list-clients -t "$session" -F "#{client_tty}" 2>/dev/null | head -1)
     "$SERVICES" "$session" stop all >/dev/null 2>&1
     sleep 1
     tmux kill-session -t "$session" && echo "  tmux session killed"
+    close_iterm_tab "$tty" && echo "  iTerm2 tab closed"
   fi
 
   refresh_profiles

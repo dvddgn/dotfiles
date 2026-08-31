@@ -303,13 +303,17 @@ write_exceptions() {
     fi
   done < "$maptmp"
 
-  # Stray: a session VS Code (or `cct` with no name) created and nobody named -
-  # word plus a 6-digit HHMMSS timestamp. None of this setup's real naming
-  # conventions produce that shape, so it is always worth a second look.
+  # Stray: word plus a 6-digit HHMMSS timestamp - VS Code, a nameless `cct`, or
+  # (since 2026-08-31) the tmux-aih-m1/tmux-ws/tmux-claw/tmux-hre quick-session
+  # iTerm2 Profiles all produce exactly this shape on purpose, since they're
+  # meant to be disposable. Detection stays on regardless of which produced it -
+  # DD asked deliberately: it's how 7 of these piled up unnoticed and got found
+  # in the first place (2026-08-31). The fix here is just the label being
+  # accurate about both possible origins, not excluding either from being seen.
   local sess
   while read -r sess; do
     [[ "$sess" =~ ^[a-z][a-z0-9]*-[0-9]{6}$ ]] || continue
-    printf 'STRAY-SESSION\t%s\tsess-HHMMSS shape - probably an unnamed VS Code/cct artifact\n' "$sess" >> "$tmp"
+    printf 'STRAY-SESSION\t%s\tsess-HHMMSS shape - an unnamed VS Code/cct artifact, or a disposable tmux-aih-m1/tmux-ws/tmux-claw/tmux-hre session nobody killed yet\n' "$sess" >> "$tmp"
     n=$((n + 1))
   done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
 

@@ -262,10 +262,14 @@ resolve_redis_db() {
     printf '%s\n' "$db" > "$marker"
     echo "  (adopted existing Redis db $db for $(basename "$wt"))" >&2
   else
-    for db in {8..15}; do
-      redis_db_claimed_elsewhere "$wt" "$db" || break
+    db=""
+    for candidate_db in {8..15}; do
+      if ! redis_db_claimed_elsewhere "$wt" "$candidate_db"; then
+        db="$candidate_db"
+        break
+      fi
     done
-    if [[ "$db" -gt 15 ]]; then
+    if [[ -z "$db" ]]; then
       rmdir "$lock"
       echo ""
       return 0

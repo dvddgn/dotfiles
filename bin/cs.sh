@@ -614,6 +614,13 @@ cmd_iterm_restore() {
     # Stray sess-HHMMSS-style sessions from a VS Code restart, not a real work
     # slot - see the tmux skill's cleanup section. Never worth a tab.
     [[ "$sess" =~ ^m1-[0-9]{6}$ ]] && continue
+    # c1-c5/m1-m5 (the Codex-loop and manual clones) are optional tabs, not
+    # standing clutter - DD isn't using them day to day (2026-08-31). The
+    # sessions themselves still exist (ensure_core_sessions keeps them
+    # available for the loop / a quick reattach); they just don't earn an
+    # always-open tab any more. Open one on demand with `cs tab <name>`
+    # (e.g. `cs tab m3`) exactly when you actually need it.
+    [[ "$sess" =~ ^(c[1-5]|m[1-5])$ ]] && continue
     if [[ "$sess" == "claw" || "$sess" == ops-* || "$sess" == prj-* ]]; then
       win_id=$personal_win; personal_n=$((personal_n + 1)); n=$personal_n
     else

@@ -18,6 +18,7 @@
 # — never automatically, and never with live work still in it.
 
 CORE_SESSIONS="$HOME/code/dvddgn/dotfiles/core-sessions.txt"
+TMUX_PROJECT="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
 
 typeset -A SESSION_DIR SESSION_EXTRA
 ALL_SESSIONS=()
@@ -124,6 +125,7 @@ for SESSION in "${SESSIONS[@]}"; do
 
   # Start on first window
   tmux select-window -t "${SESSION}:1"
+  [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$SESSION" >/dev/null 2>&1 || true
 
   # Open VS Code (use workspace file if it exists, unless --no-code)
   if [ "$NO_CODE" = false ]; then

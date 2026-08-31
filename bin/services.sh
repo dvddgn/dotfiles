@@ -22,6 +22,7 @@ ALL_SESSIONS=("${STATIC_SESSIONS[@]}" "${WT_SESSIONS[@]}")
 # only way for a checkout that genuinely shares: an old branch with no
 # VITE_RUBY_PORT, or a slot past the 15-index Redis ceiling.
 KEEP_OTHERS=true
+TMUX_PROJECT="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
 
 ARGS=()
 for arg in "$@"; do
@@ -79,6 +80,7 @@ ensure_window() {
     echo "Error: could not create window '$w' in session '$s'" >&2
     exit 1
   }
+  [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$s" >/dev/null 2>&1 || true
 }
 
 # Resolve the directory unconditionally - the vite port is read from its .env
@@ -94,6 +96,8 @@ if ! tmux has-session -t "$SESSION" 2>/dev/null; then
     exit 1
   fi
 fi
+
+[[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$SESSION" >/dev/null 2>&1 || true
 
 # hre needed an explicit exemption when seizing was the default - it has its own
 # local DB and port, so it never had cause to stop anyone. That is now every

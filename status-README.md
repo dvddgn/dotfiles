@@ -1,6 +1,6 @@
 # What is running on this machine
 
-Three files, refreshed together by one command:
+The snapshot files are refreshed together by one command:
 
 ```bash
 cs snapshot
@@ -12,6 +12,9 @@ Check the file's modified time to know how stale that is.
 
 `cs` is `~/code/dvddgn/dotfiles/bin/cs.sh`, symlinked to `~/code/dvddgn/cs.sh` and
 aliased in `zshrc`.
+
+The canonical implementation and change guide is
+`~/code/dvddgn/dotfiles/TMUX-STATUS.md`.
 
 ---
 
@@ -57,8 +60,42 @@ anything without a Claude process, including the clone shells and the idle workt
 | column | |
 |---|---|
 | `SESSION` `WINDOW` `NAME` | which window |
+| `PURPOSE` | the status-line description maintained by `tmux-project` |
 | `COMMAND` | what is running in it — `zsh` means idle |
 | `DIRECTORY` | the pane's working directory |
+
+## `contexts.txt` — the middle status row for every session
+
+One snapshot row per live tmux session, including its `PROJECT`, `REPO`, `AREA`,
+or `SYSTEM` label, displayed name, optional URL, and whether the value came from
+a Workspace project binding, a manual override, or inference.
+
+## `tmux-projects.tsv` — durable Workspace project bindings
+
+One row per tmux session explicitly bound to a Workspace project. Unlike the
+snapshot files, this is durable state maintained by `tmux-project`; `cs snapshot`
+does not replace it.
+
+| column | |
+|---|---|
+| `SESSION` | tmux session receiving the Workspace project context |
+| `PROJECT REF` | canonical `project:<slug>` reference |
+| `PROJECT NAME` | name displayed on the project row |
+| `SHORT URL` | terminal-safe `/t/<8-hex>` production link |
+
+## `tmux-contexts.tsv` — optional manual session contexts
+
+Manual `REPO`, `AREA`, or `SYSTEM` overrides. Most sessions need no row here:
+`tmux-project` infers core repositories, AIH worktrees, `ops-*`, `prj-*`, and
+ad-hoc sessions from their names and working directories. A Workspace project
+binding takes precedence over a manual context, which takes precedence over
+inference.
+
+`wt restore`, `cs restore`, `up`, `srv`, and `cct` reapply context. Run
+`tmux-project apply --all` to retrofit a live server. The global tmux
+`session-created` and `after-new-window` hooks cover manually-created sessions
+and windows created later with prefix + c. Every session uses the same three-row
+structure.
 
 ## `servers.txt` — everything listening
 

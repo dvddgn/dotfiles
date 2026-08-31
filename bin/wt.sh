@@ -10,8 +10,10 @@
 # --no-ui skips both, for a batch of slots or a session with no GUI.
 #
 # Usage:
-#   wt new    <slug> [branch] [--claudes N] [--no-rails] [--no-ui]  # N defaults to 3 ($WT_CLAUDES)
+#   wt new    <slug> [branch] [--project <ref>] [--claudes N] [--no-rails] [--no-ui]
 #   wt agent  <slug> [window-name]
+#   wt project <slug> <project-ref>       # bind/change the Workspace project
+#   wt project <slug> --clear             # remove the project binding
 #   wt restore [slug] [--rails]        # after a reboot: rebuild the tmux sessions
 #   wt done   <slug> [--force]
 #   wt rename <old-slug> <new-slug> [new-branch]
@@ -58,6 +60,7 @@ BASE="$HOME/code/dvddgn"
 PARENT="${AIH_PARENT:-$BASE/advice-innovation-hub-m1}"
 SERVICES="$BASE/services.sh"
 CS="$BASE/cs.sh"
+TMUX_PROJECT="$BASE/dotfiles/bin/tmux-project.sh"
 
 die() { echo "Error: $*" >&2; exit 1; }
 
@@ -140,6 +143,7 @@ make_windows() {
   tmux new-window -d -t "$session" -n sidekiq -c "$wt"
   tmux new-window -d -t "$session" -n vite    -c "$wt"
   tmux new-window -d -t "$session" -n shell   -c "$wt"
+  [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$session" >/dev/null 2>&1 || true
   echo "  tmux session $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
 }
 
@@ -167,6 +171,7 @@ make_agent_windows() {
     tmux new-window -d -t "$session" -n "claude$i" -c "$dir"
   done
   tmux new-window -d -t "$session" -n shell -c "$dir"
+  [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$session" >/dev/null 2>&1 || true
   echo "  $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
 }
 
@@ -271,10 +276,11 @@ close_iterm_tab() {
 }
 
 cmd_new() {
-  local slug="" branch="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=true
+  local slug="" branch="" project_ref="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=true
   while (($#)); do
     case "$1" in
       --claudes) claudes="${2:?--claudes needs a number}"; shift 2 ;;
+      --project) project_ref="${2:?--project needs a Workspace project reference}"; shift 2 ;;
       --no-rails) start_rails=false; shift ;;
       --no-ui) open_ui=false; shift ;;
       -*) die "unknown flag $1" ;;
@@ -292,6 +298,11 @@ cmd_new() {
   [[ -e "$wt" ]] && die "$wt already exists"
   tmux has-session -t "$session" 2>/dev/null && die "tmux session $session already exists"
   [[ -d "$PARENT" ]] || die "parent clone not found at $PARENT"
+
+  if [[ -n "$project_ref" ]]; then
+    [[ -x "$TMUX_PROJECT" ]] || die "tmux project helper not found at $TMUX_PROJECT"
+    "$TMUX_PROJECT" resolve "$project_ref" >/dev/null || die "Workspace project did not resolve: $project_ref"
+  fi
 
   echo "Creating slot '$slug' on branch $branch"
   git -C "$PARENT" fetch origin main --quiet
@@ -330,6 +341,10 @@ cmd_new() {
   link_memory "$wt"
 
   make_windows "$session" "$wt" "$claudes"
+  if [[ -n "$project_ref" ]]; then
+    "$TMUX_PROJECT" bind "$session" "$project_ref" \
+      || echo "  project status could not be applied; retry with: wt project $slug $project_ref"
+  fi
   refresh_profiles
 
   local urlline
@@ -423,6 +438,8 @@ cmd_rm() {
     tmux kill-session -t "$session" && echo "  tmux session killed"
     close_iterm_tab "$tty" && echo "  iTerm2 tab closed"
   fi
+
+  [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" forget "$session" >/dev/null 2>&1 || true
 
   refresh_profiles
   rm -f "$wt.port" && echo "  port file removed"
@@ -594,6 +611,7 @@ cmd_agent() {
   else
     tmux new-window -d -t "$session" -n "$name" -c "$wt"
   fi
+  [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$session" >/dev/null 2>&1 || true
 
   echo "Added $name to $session"
   tmux list-windows -t "$session" -F "  #{window_index}: #{window_name}"
@@ -650,6 +668,7 @@ cmd_rename() {
   tmux has-session -t "wt-$old" 2>/dev/null && {
     tmux rename-session -t "wt-$old" "wt-$new" && echo "  tmux session wt-$old -> wt-$new"
   }
+  [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" rename "wt-$old" "wt-$new" >/dev/null 2>&1 || true
 
   [[ -f "$owt.port" ]] && mv "$owt.port" "$nwt.port" && echo "  port file moved"
   [[ -f "$owt.redisdb" ]] && mv "$owt.redisdb" "$nwt.redisdb" && echo "  Redis allocation marker moved"
@@ -727,6 +746,7 @@ cmd_restore() {
       link_memory "$wt" >/dev/null
       $start_rails && "$SERVICES" "$session" start rails --keep-others >/dev/null 2>&1
     fi
+    [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$session" >/dev/null 2>&1 || true
 
     # Backfill for slots created before standalone workspace files existed.
     if [[ ! -f "$wt/$slug.code-workspace" ]]; then
@@ -751,6 +771,26 @@ cmd_restore() {
 $found slot(s). Sessions rebuilt; agents are not resumed - run a resume line above,
 or start fresh with: ccp <project-slug> --opus "<brief>"
 EOF
+}
+
+# ---- Workspace project --------------------------------------------------------
+cmd_project() {
+  local slug=${1:-} ref=${2:-}
+  [[ -n "$slug" && -n "$ref" ]] || die "usage: wt project <slug> <project-ref|--clear>"
+  [[ -x "$TMUX_PROJECT" ]] || die "tmux project helper not found at $TMUX_PROJECT"
+  local session=$slug
+  if [[ "$session" != wt-* ]]; then
+    if tmux has-session -t "$session" 2>/dev/null; then
+      : # An explicit live non-worktree session, such as m1.
+    elif [[ -d "$BASE/aih-wt-$slug" ]]; then
+      session="wt-$slug"
+    fi
+  fi
+  if [[ "$ref" == "--clear" ]]; then
+    "$TMUX_PROJECT" clear "$session"
+  else
+    "$TMUX_PROJECT" bind --force "$session" "$ref"
+  fi
 }
 
 # ---- ls -----------------------------------------------------------------------
@@ -818,6 +858,7 @@ else:
 case "${1:-}" in
   new)    shift; cmd_new "$@" ;;
   agent)  shift; cmd_agent "$@" ;;
+  project) shift; cmd_project "$@" ;;
   restore) shift; cmd_restore "$@" ;;
   done)   shift; cmd_done "$@" ;;
   rename) shift; cmd_rename "$@" ;;
@@ -825,5 +866,5 @@ case "${1:-}" in
   ls)     shift; cmd_ls "$@" ;;
   audit)  shift; cmd_audit "$@" ;;
   ""|-h|--help) usage ;;
-  *) die "unknown command '$1' (use new, agent, restore, done, rename, rm, ls or audit)" ;;
+  *) die "unknown command '$1' (use new, agent, project, restore, done, rename, rm, ls or audit)" ;;
 esac

@@ -191,6 +191,7 @@ PYEOF
 # often than they are parsed.
 STATUS="$HOME/.claude/status"
 MAP="$STATUS/sessions.txt"
+TMUX_PROJECT="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
 
 cmd_snapshot() {
   local n=0 seen=""
@@ -256,12 +257,14 @@ cmd_snapshot() {
     sort -t$'\t' -k2,2 -k1,1 "$MAP.tmp"; } | column -t -s$'\t' > "$MAP"
   rm -f "$MAP.tmp" "$STATUS/.pane"
   write_inventory
+  write_contexts
   write_servers
   write_profiles
   [[ -f "$STATUS/README.md" ]] || cp "$HOME/code/dvddgn/dotfiles/status-README.md" "$STATUS/README.md" 2>/dev/null
   echo "Recorded $n live Claude session(s) -> $STATUS/"
   printf '  %s\n' "sessions.txt    ($n)" \
                   "windows.txt     ($(($(wc -l < "$INVENTORY") - 1)) windows)" \
+                  "contexts.txt    ($(($(wc -l < "$CONTEXTS") - 1)) sessions)" \
                   "servers.txt     ($(($(wc -l < "$SERVERS") - 1)) listening)" \
                   "exceptions.txt  ($exceptions_n)"
 }
@@ -354,11 +357,22 @@ INVENTORY="$STATUS/windows.txt"
 write_inventory() {
   mkdir -p "$STATUS"
   {
-    printf 'SESSION\tWINDOW\tNAME\tCOMMAND\tDIRECTORY\n'
+    printf 'SESSION\tWINDOW\tNAME\tPURPOSE\tCOMMAND\tDIRECTORY\n'
     # tmux does not interpret \t in a format string - the tab has to be a real one.
-    tmux list-windows -a -F "#{session_name}$(printf '\t')#{window_index}$(printf '\t')#{window_name}$(printf '\t')#{pane_current_command}$(printf '\t')#{pane_current_path}" 2>/dev/null \
-      | sort -t$'\t' -k5,5 -k1,1 -k2,2n
+    tmux list-windows -a -F "#{session_name}$(printf '\t')#{window_index}$(printf '\t')#{window_name}$(printf '\t')#{@window_purpose}$(printf '\t')#{pane_current_command}$(printf '\t')#{pane_current_path}" 2>/dev/null \
+      | sort -t$'\t' -k6,6 -k1,1 -k2,2n
   } | column -t -s$'\t' > "$INVENTORY"
+}
+
+# One row per tmux session showing exactly what appears on the middle status row.
+CONTEXTS="$STATUS/contexts.txt"
+write_contexts() {
+  mkdir -p "$STATUS"
+  {
+    printf 'SESSION\tTYPE\tCONTEXT\tSOURCE\tURL\n'
+    tmux list-sessions -F "#{session_name}$(printf '\t')#{@context_label}$(printf '\t')#{@context_name}$(printf '\t')#{@context_source}$(printf '\t')#{@context_url}" 2>/dev/null \
+      | sort -t$'\t' -k2,2 -k1,1
+  } | column -t -s$'\t' > "$CONTEXTS"
 }
 
 # What is actually listening, and which slot owns it. The <worktree>.port files map
@@ -431,6 +445,7 @@ cmd_restore_tmux() {
       echo "  $sess: rebuilt — unnamed; find it with: cd $cwd && cs -g '${title%% *}'"
     fi
   done < "$MAP"
+  [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply --all >/dev/null 2>&1 || true
   echo
   echo "$rebuilt rebuilt, $skipped already up. Agents are not resumed - the lines above do that."
 }
@@ -528,6 +543,7 @@ ensure_core_sessions() {
       tmux new-window -t "$name" -n "$wname" -c "$dir"
     done
     tmux select-window -t "$name:1"
+    [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$name" >/dev/null 2>&1 || true
     echo "  $name: rebuilt (missing entirely - full layout from core-sessions.txt)"
   done < "$CORE_SESSIONS"
 }

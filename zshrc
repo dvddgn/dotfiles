@@ -130,11 +130,29 @@ alias up="~/code/dvddgn/startup.sh"
 alias sess="~/code/dvddgn/workspace-app/ai-builder/scripts/sessions.sh"
 
 # Create or attach a tmux session — use to spin up isolated tmux per VS Code terminal
-# cct                → auto-named session (sess-HHMMSS)
-# cct my-feature     → create or attach to "my-feature"
+# cct                                      → auto-named session (sess-HHMMSS)
+# cct my-feature                           → create or attach to "my-feature"
+# cct my-feature --project project:<slug>  → bind a Workspace project first
 cct() {
-  local name="${1:-sess-$(date +%H%M%S)}"
-  tmux new-session -A -s "$name"
+  local name="" project_ref=""
+  while (($#)); do
+    case "$1" in
+      --project) project_ref="${2:?--project needs a Workspace project reference}"; shift 2 ;;
+      -*) echo "Unknown cct flag: $1" >&2; return 1 ;;
+      *) [[ -z "$name" ]] && name=$1 || { echo "Unexpected cct argument: $1" >&2; return 1; }; shift ;;
+    esac
+  done
+  name="${name:-sess-$(date +%H%M%S)}"
+  if ! tmux has-session -t "$name" 2>/dev/null; then
+    tmux new-session -d -s "$name" -c "$PWD" || return
+  fi
+  local helper="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
+  if [[ -n "$project_ref" ]]; then
+    "$helper" bind "$name" "$project_ref" || return
+  elif [[ -x "$helper" ]]; then
+    "$helper" apply "$name" >/dev/null 2>&1
+  fi
+  tmux attach-session -t "$name"
 }
 
 # Open VS Code workspace by session name
@@ -221,3 +239,4 @@ alias fav="$HOME/.openclaw/workspace/scripts/fav"
 
 # Claude Code Project — start/resume sessions with project context
 alias ccp="bash ~/code/dvddgn/workspace-app/ai-builder/scripts/ccp.sh"
+alias tmux-project="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"

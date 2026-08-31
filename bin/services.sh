@@ -35,6 +35,7 @@ done
 SESSION="${ARGS[0]:?Usage: ./services.sh <session> <start|stop|restart> [rails|sidekiq|vite|all] [--keep-others]}"
 ACTION="${ARGS[1]:?Usage: ./services.sh <session> <start|stop|restart> [rails|sidekiq|vite|all] [--keep-others]}"
 SERVICE="${ARGS[2]:-all}"
+AIH_BASE="$HOME/code/dvddgn"
 
 # Directory backing a session. Worktrees follow the convention wt-<slug> -> aih-wt-<slug>.
 session_dir() {
@@ -197,34 +198,94 @@ RAILS_CMD="bin/rails server -p $PORT"
 # ENV.fetch('REDIS_URL', ...) has been in config/initializers/sidekiq.rb since
 # 2025-09-03 for BOTH configure_server and configure_client, so every branch
 # honours this - no capability guard needed, unlike the Vite equivalent.
-resolve_redis_db() {
-  local wt=$1 f="$1.redisdb" db=8
-  [[ -f "$f" ]] && { cat "$f"; return; }
-  while [[ $db -le 15 ]]; do
-    grep -qx "$db" "$HOME"/code/dvddgn/aih-wt-*.redisdb 2>/dev/null || break
-    db=$((db + 1))
+redis_db_from_env() {
+  sed -n 's|^REDIS_URL=redis://localhost:6379/\([0-9][0-9]*\)$|\1|p' "$1/.env" 2>/dev/null | tail -1
+}
+
+redis_db_claimed_elsewhere() {
+  local wt=$1 db=$2 candidate candidate_db marker
+  shopt -s nullglob
+  for marker in "$AIH_BASE"/aih-wt-*.redisdb; do
+    [[ "$marker" == "$wt.redisdb" ]] && continue
+    candidate_db=$(cat "$marker" 2>/dev/null || true)
+    [[ "$candidate_db" == "$db" ]] && return 0
   done
-  [[ $db -gt 15 ]] && { echo ""; return; }   # out of indices: stay on db0
-  echo "$db" | tee "$f"
+  for candidate in "$AIH_BASE"/aih-wt-*/; do
+    candidate="${candidate%/}"
+    [[ "$candidate" == "$wt" ]] && continue
+    candidate_db=$(cat "$candidate.redisdb" 2>/dev/null || true)
+    [[ "$candidate_db" == "$db" ]] && return 0
+    candidate_db=$(redis_db_from_env "$candidate")
+    [[ "$candidate_db" == "$db" ]] && return 0
+  done
+  return 1
+}
+
+write_redis_url() {
+  local wt=$1 db=$2 env="$wt/.env" tmp
+  tmp=$(mktemp "$env.redis.XXXXXX") || return 1
+  awk -v url="REDIS_URL=redis://localhost:6379/$db" '
+    /^REDIS_URL=/ { if (!written++) print url; next }
+    { print }
+    END { if (!written) print url }
+  ' "$env" > "$tmp" && mv "$tmp" "$env"
+}
+
+# A slot's marker is the source of truth. The lock makes the scan-and-claim
+# sequence atomic when two slots start at the same time. Existing .env values
+# are considered claims too, so legacy slots without markers cannot be reused.
+resolve_redis_db() {
+  local wt=$1 marker="$1.redisdb" lock="$AIH_BASE/.aih-redis-allocation.lock"
+  local db env_db attempt=0
+
+  until mkdir "$lock" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    [[ $attempt -lt 100 ]] || { echo "Redis allocation lock is busy: $lock" >&2; return 1; }
+    sleep 0.05
+  done
+
+  db=$(cat "$marker" 2>/dev/null || true)
+  env_db=$(redis_db_from_env "$wt")
+  if [[ -n "$db" ]]; then
+    if [[ ! "$db" =~ ^(8|9|1[0-5])$ ]]; then
+      echo "Invalid Redis allocation marker $marker: '$db'" >&2
+      rmdir "$lock"
+      return 1
+    fi
+    if redis_db_claimed_elsewhere "$wt" "$db"; then
+      echo "Redis db $db for $(basename "$wt") is also claimed by another worktree" >&2
+      rmdir "$lock"
+      return 1
+    fi
+  elif [[ "$env_db" =~ ^(8|9|1[0-5])$ ]] && ! redis_db_claimed_elsewhere "$wt" "$env_db"; then
+    db="$env_db"
+    printf '%s\n' "$db" > "$marker"
+    echo "  (adopted existing Redis db $db for $(basename "$wt"))" >&2
+  else
+    for db in {8..15}; do
+      redis_db_claimed_elsewhere "$wt" "$db" || break
+    done
+    if [[ "$db" -gt 15 ]]; then
+      rmdir "$lock"
+      echo ""
+      return 0
+    fi
+    printf '%s\n' "$db" > "$marker"
+    echo "  (allocated Redis db $db for $(basename "$wt"))" >&2
+  fi
+
+  if [[ "$env_db" != "$db" ]]; then
+    write_redis_url "$wt" "$db" || { rmdir "$lock"; return 1; }
+  fi
+  rmdir "$lock"
+  echo "$db"
 }
 
 REDIS_DB=""
 if [[ "$SESSION" == wt-* && -d "$SESSION_DIR" ]]; then
-  REDIS_DB=$(grep -h '^REDIS_URL=' "$SESSION_DIR/.env" 2>/dev/null | tail -1 | sed 's|.*/||')
+  REDIS_DB=$(resolve_redis_db "$SESSION_DIR") || exit 1
   if [[ -z "$REDIS_DB" ]]; then
-    REDIS_DB=$(resolve_redis_db "$SESSION_DIR")
-    if [[ -n "$REDIS_DB" ]]; then
-      {
-        echo ""
-        echo "# This checkout's own Sidekiq queue. Without it every checkout shares"
-        echo "# redis db0 and a job dispatched here can be run by another checkout's"
-        echo "# worker, on different code, silently."
-        echo "REDIS_URL=redis://localhost:6379/$REDIS_DB"
-      } >> "$SESSION_DIR/.env"
-      echo "  (allocated Redis db $REDIS_DB for $SESSION)"
-    else
-      echo "  WARNING: no free Redis index (8-15 all taken) - $SESSION stays on db0, shared" >&2
-    fi
+    echo "  WARNING: no free Redis index (8-15 all taken) - $SESSION stays on db0, shared" >&2
   fi
 fi
 SIDEKIQ_CMD="${REDIS_DB:+REDIS_URL=redis://localhost:6379/$REDIS_DB }bundle exec sidekiq -C config/sidekiq.yml"

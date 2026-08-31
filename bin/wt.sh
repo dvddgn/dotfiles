@@ -38,10 +38,10 @@
 # Windows created in session wt-<slug>, in this order:
 #   claude   the agent (ccp <project-slug> to launch one with project context)
 #   rails    driven by services.sh / srv; started automatically unless --no-rails
-#   sidekiq  left idle deliberately — Sidekiq is a singleton across every clone
-#            and worktree, so only one may run at a time
-#   vite     left idle too — it binds 3036 and only one checkout can hold it.
-#            Assets build on demand via autoBuild, so this is only for frontend work
+#   sidekiq  left idle until needed. Each checkout has its own Redis queue, so
+#            workers may run concurrently when they have an allocated database.
+#   vite     left idle too — assets build on demand via autoBuild, so this is
+#            only needed for frontend work
 #   shell    a free terminal at the worktree root
 #
 # Ports are allocated by services.sh (3012 upward, recorded in <worktree>.port
@@ -311,8 +311,13 @@ cmd_new() {
     git -C "$PARENT" worktree add -b "$branch" "$wt" origin/main --quiet || die "worktree add failed"
   fi
 
-  # The only untracked file the app needs.
-  cp "$PARENT/.env" "$wt/.env" && echo "  .env copied"
+  # The only untracked file the app needs. A slot must not inherit the parent's
+  # Sidekiq queue: services.sh allocates and records its own Redis database on
+  # first service start. Other shared development settings (notably
+  # SECRET_KEY_BASE) stay intact.
+  cp "$PARENT/.env" "$wt/.env" \
+    && sed -i '' '/^REDIS_URL=/d' "$wt/.env" \
+    && echo "  .env copied (Redis allocation deferred)"
 
   # Copy, never symlink: Vite writes its cache into node_modules/.vite and two
   # worktrees sharing that directory collide. -Rc is APFS copy-on-write, so
@@ -421,6 +426,7 @@ cmd_rm() {
 
   refresh_profiles
   rm -f "$wt.port" && echo "  port file removed"
+  rm -f "$wt.redisdb" && echo "  Redis allocation marker removed"
   # A brief/context file lives BESIDE the worktree so `git worktree remove`
   # cannot take it with the directory - which is also why nothing else ever
   # did. They are small and outside every `git status`, so they accumulate
@@ -646,6 +652,7 @@ cmd_rename() {
   }
 
   [[ -f "$owt.port" ]] && mv "$owt.port" "$nwt.port" && echo "  port file moved"
+  [[ -f "$owt.redisdb" ]] && mv "$owt.redisdb" "$nwt.redisdb" && echo "  Redis allocation marker moved"
   # Same reason as the port file: named for the slug, so a rename would strand
   # them under the old one and teardown would no longer find them.
   for ext in brief.md context.md; do

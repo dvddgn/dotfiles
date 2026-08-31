@@ -282,7 +282,9 @@ resolve_redis_db() {
 }
 
 REDIS_DB=""
-if [[ "$SESSION" == wt-* && -d "$SESSION_DIR" ]]; then
+# Stopping a service must not claim or rewrite a queue assignment. Allocation is
+# needed before a checkout starts services, because Rails reads REDIS_URL at boot.
+if [[ "$ACTION" != stop && "$SESSION" == wt-* && -d "$SESSION_DIR" ]]; then
   REDIS_DB=$(resolve_redis_db "$SESSION_DIR") || exit 1
   if [[ -z "$REDIS_DB" ]]; then
     echo "  WARNING: no free Redis index (8-15 all taken) - $SESSION stays on db0, shared" >&2

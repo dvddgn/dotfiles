@@ -3,11 +3,13 @@
 #
 # A slot is: the git worktree, its .env, a copy-on-write node_modules, an entry
 # in the shared VS Code workspace, a tmux session, the seven windows a slot always
-# ends up needing, its own VS Code window and an iTerm2 tab attached to the session
-# — so none of it is assembled a step at a time later. The window and the tab are
-# not optional extras: a slot exists to be worked in by hand (nothing automated
-# creates one), so it is not finished until there is somewhere to work in it.
-# --no-ui skips both, for a batch of slots or a session with no GUI.
+# ends up needing, its own VS Code window, an iTerm2 tab attached to the session,
+# and a dedicated Chrome window (an overview page as the front tab, plus the
+# Workspace project, GitHub and the running app) — so none of it is assembled a
+# step at a time later. None of these are optional extras: a slot exists to be
+# worked in by hand (nothing automated creates one), so it is not finished until
+# there is somewhere to work in it.
+# --no-ui skips all three, for a batch of slots or a session with no GUI.
 #
 # Usage:
 #   wt new    <slug> [branch] [--project <ref>] [--claudes N] [--no-rails] [--no-ui]
@@ -65,7 +67,7 @@ TMUX_PROJECT="$BASE/dotfiles/bin/tmux-project.sh"
 die() { echo "Error: $*" >&2; exit 1; }
 
 usage() {
-  sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -275,6 +277,119 @@ close_iterm_tab() {
   " 2>/dev/null | grep -q closed
 }
 
+# ---- browser workspace ---------------------------------------------------------
+# A slot's Chrome window mirrors the standalone VS Code window: a small generated
+# page as the front tab so the window is identifiable at a glance (Chrome has no
+# real per-window title API, so the front tab's <title> is the closest thing to
+# "named like the worktree"), plus whichever of the Workspace project, GitHub and
+# the running app actually exist for this slot. *.overview.html lives BESIDE the
+# worktree, same as the port/brief/context files - anything inside would show up
+# in every `git status`.
+write_overview_html() {
+  local slug=$1 branch=$2 wt=$3 app_url=$4 project_name=$5 project_url=$6 pr_url=$7
+  python3 - "$wt.overview.html" "$slug" "$branch" "$app_url" "$project_name" "$project_url" "$pr_url" <<'PY'
+import sys, html
+out, slug, branch, app_url, project_name, project_url, pr_url = sys.argv[1:8]
+def esc(s): return html.escape(s or "")
+cards = []
+if project_url:
+    cards.append(("Workspace project", project_name or project_url, project_url))
+if pr_url:
+    cards.append(("GitHub", pr_url, pr_url))
+if app_url:
+    cards.append(("App", app_url, app_url))
+cards_html = "\n".join(
+    f'<a class="card" href="{esc(u)}" target="_blank" rel="noopener">'
+    f'<span class="label">{esc(l)}</span><span class="value">{esc(v)}</span></a>'
+    for l, v, u in cards
+) or '<p class="empty">Nothing bound yet - no Workspace project, no PR, no server.</p>'
+page = f"""<!doctype html>
+<html><head><meta charset="utf-8">
+<title>wt · {esc(slug)}</title>
+<style>
+  body {{ font: 14px/1.5 -apple-system, BlinkMacSystemFont, sans-serif; background: #0f172a;
+          color: #e2e8f0; margin: 0; padding: 40px; }}
+  h1 {{ font-size: 20px; margin: 0 0 4px; }}
+  .branch {{ color: #7dd3fc; font-family: ui-monospace, monospace; margin: 0 0 28px; }}
+  .card {{ display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; margin-bottom: 10px;
+           background: #1e293b; border-radius: 8px; text-decoration: none; color: inherit; }}
+  .card:hover {{ background: #263449; }}
+  .label {{ font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #94a3b8; }}
+  .value {{ font-family: ui-monospace, monospace; word-break: break-all; }}
+  .empty {{ color: #64748b; }}
+  ul {{ padding-left: 18px; color: #cbd5e1; }}
+  li {{ margin-bottom: 6px; }}
+  code {{ background: #1e293b; padding: 1px 5px; border-radius: 4px; }}
+  h2 {{ font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #94a3b8;
+        margin: 28px 0 10px; }}
+</style></head>
+<body>
+<h1>wt · {esc(slug)}</h1>
+<p class="branch">{esc(branch)}</p>
+{cards_html}
+<h2>Next steps</h2>
+<ul>
+  <li>Attach: <code>tmux attach -t wt-{esc(slug)}</code></li>
+  <li>Push before handing the branch to Codex or asking for review - a review or the loop only
+      sees what is on origin</li>
+  <li>Pull explicitly if another agent owns the branch:
+      <code>git -C ~/code/dvddgn/aih-wt-{esc(slug)} pull --ff-only</code></li>
+  <li>Close out from OUTSIDE the slot once merged: <code>wt done {esc(slug)}</code></li>
+</ul>
+</body></html>
+"""
+open(out, "w").write(page)
+print(f"  overview page written ({out.split('/')[-1]})")
+PY
+}
+
+# GitHub and the Workspace project need DD's work identity (david@adviceinnovationhub.com)
+# to already be signed in, so the window opens under that Chrome profile rather than
+# whatever profile happened to be active. Chrome assigns an opaque directory name
+# ("Profile 4", ...) per profile and can renumber them across profile
+# additions/removals, so look it up by identity in Local State rather than
+# hardcoding the directory - the same "check the capability, don't assume the
+# version" reasoning CLAUDE.md documents for tooling that depends on local state.
+CHROME_LOCAL_STATE="$HOME/Library/Application Support/Google/Chrome/Local State"
+chrome_aih_profile_dir() {
+  [[ -f "$CHROME_LOCAL_STATE" ]] || return 1
+  python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    d = json.load(f)
+for key, info in d.get("profile", {}).get("info_cache", {}).items():
+    if info.get("user_name") == "david@adviceinnovationhub.com":
+        print(key)
+        break
+' "$CHROME_LOCAL_STATE" 2>/dev/null
+}
+
+# `open -n` starts a genuinely new Chrome window rather than adding tabs to
+# whichever window is already frontmost; `--new-window` is Chrome's own flag for
+# the same thing and matters when Chrome is not yet running at all. Degrades
+# silently if Chrome is not installed or `open` fails - a slot must never fail to
+# build because a browser did not cooperate.
+open_browser_workspace() {
+  local overview=$1; shift
+  [[ -d "/Applications/Google Chrome.app" ]] || { echo "  (Google Chrome not found - skipping browser workspace)"; return 1; }
+  local urls=("file://$overview") u
+  for u in "$@"; do [[ -n "$u" ]] && urls+=("$u"); done
+  local profile_dir chrome_args=(--new-window)
+  profile_dir=$(chrome_aih_profile_dir)
+  if [[ -n "$profile_dir" ]]; then
+    chrome_args+=(--profile-directory="$profile_dir")
+  else
+    echo "  (could not find the AIH Chrome profile - opening in whatever profile is active)"
+  fi
+  if open -na "Google Chrome" --args "${chrome_args[@]}" "${urls[@]}" 2>/dev/null; then
+    echo "  browser workspace opened (${#urls[@]} tab$([[ ${#urls[@]} == 1 ]] || echo s))"
+    return 0
+  else
+    echo "  (Chrome would not open - by hand: open -a 'Google Chrome' --args ${chrome_args[*]} ${urls[*]})"
+    return 1
+  fi
+}
+
 cmd_new() {
   local slug="" branch="" project_ref="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=true
   while (($#)); do
@@ -299,9 +414,15 @@ cmd_new() {
   tmux has-session -t "$session" 2>/dev/null && die "tmux session $session already exists"
   [[ -d "$PARENT" ]] || die "parent clone not found at $PARENT"
 
+  # Resolved once, here, rather than re-resolved later for the browser workspace -
+  # resolution is a Supabase round trip and the ref does not change mid-command.
+  local project_name="" project_url=""
   if [[ -n "$project_ref" ]]; then
     [[ -x "$TMUX_PROJECT" ]] || die "tmux project helper not found at $TMUX_PROJECT"
-    "$TMUX_PROJECT" resolve "$project_ref" >/dev/null || die "Workspace project did not resolve: $project_ref"
+    local resolved
+    resolved=$("$TMUX_PROJECT" resolve "$project_ref") || die "Workspace project did not resolve: $project_ref"
+    project_name=$(sed -n '1p' <<<"$resolved" | sed -E 's/ \([^)]*\)$//')
+    project_url=$(sed -n '2p' <<<"$resolved" | sed -E 's/^ *//')
   fi
 
   echo "Creating slot '$slug' on branch $branch"
@@ -347,11 +468,10 @@ cmd_new() {
   fi
   refresh_profiles
 
-  local urlline
+  local urlline port=""
   if $start_rails; then
     "$SERVICES" "$session" start rails --keep-others >/dev/null 2>&1
     sleep 1
-    local port
     port=$(cat "$wt.port" 2>/dev/null || echo "?")
     echo "  rails starting on port $port"
     urlline="  url       http://localhost:$port"
@@ -396,6 +516,35 @@ cmd_new() {
     uiline="  window    code $wt/$slug.code-workspace   then: cs tab $session"
   fi
 
+  # Same gate as the VS Code window and iTerm tab, for the same reason - a slot is
+  # interactive by definition, so there is nothing for --no-ui to be an alternative
+  # to except itself. GitHub is looked up here (not earlier) so the network call
+  # only happens when it is actually going to be used.
+  local browserline
+  if $open_ui; then
+    local repo="" pr_url=""
+    repo=$(git -C "$wt" remote get-url origin 2>/dev/null \
+      | sed -E 's#^git@github\.com:##; s#^https://github\.com/##; s#\.git$##')
+    if [[ -n "$repo" ]] && command -v gh >/dev/null 2>&1; then
+      # `.[0].url` alone prints the literal string "null" on no match (gh's -q is
+      # jq under the hood) - `// empty` is what actually makes this empty.
+      pr_url=$(gh pr list --repo "$repo" --head "$branch" --json url -q '.[0].url // empty' 2>/dev/null)
+    fi
+    # No open PR yet - a ready-to-open compare link beats nothing, and costs
+    # nothing extra to build once $repo is known.
+    [[ -z "$pr_url" && -n "$repo" ]] && pr_url="https://github.com/$repo/compare/main...$branch?expand=1"
+
+    write_overview_html "$slug" "$branch" "$wt" "${port:+http://localhost:$port}" \
+      "$project_name" "$project_url" "$pr_url"
+    if open_browser_workspace "$wt.overview.html" "$project_url" "$pr_url" "${port:+http://localhost:$port}"; then
+      browserline="  browser   Chrome window opened (overview, project, GitHub, app)"
+    else
+      browserline="  browser   see the note above — by hand: open $wt.overview.html"
+    fi
+  else
+    browserline="  browser   not opened (--no-ui) — by hand: open $wt.overview.html   (not written either)"
+  fi
+
   # The attach command goes last and unlabelled, on its own line, because it is
   # the one line DD copies. Everything above it is reference.
   cat <<EOF
@@ -408,6 +557,7 @@ $urlline
   sidekiq   window is idle on purpose — only one Sidekiq may run across all clones
   vite      window is idle too — it binds 3036 exclusively; assets autoBuild without it
 $uiline
+$browserline
 
 Attach:
   tmux attach -t $session
@@ -448,7 +598,7 @@ cmd_rm() {
   # cannot take it with the directory - which is also why nothing else ever
   # did. They are small and outside every `git status`, so they accumulate
   # silently: three orphans had built up by 2026-08-30.
-  for side in "$wt.brief.md" "$wt.context.md"; do
+  for side in "$wt.brief.md" "$wt.context.md" "$wt.overview.html"; do
     [[ -f "$side" ]] && rm -f "$side" && echo "  $(basename "$side") removed"
   done
 
@@ -522,8 +672,12 @@ cmd_done() {
     merged_via="in origin/main"
   elif command -v gh >/dev/null 2>&1; then
     local pr
+    # `.[0].number` alone prints the literal string "null" on no match (gh's -q is
+    # jq under the hood), which is truthy to `[[ -n ]]` - so without `// empty` an
+    # UNMERGED branch reads as "PR #null (squashed...)" and this refuses nothing.
+    # See the same gotcha, caught before it shipped, in cmd_new's PR lookup.
     pr=$(gh pr list --repo "$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" \
-           --head "$branch" --state merged --json number -q '.[0].number' 2>/dev/null)
+           --head "$branch" --state merged --json number -q '.[0].number // empty' 2>/dev/null)
     [[ -n "$pr" ]] && merged_via="PR #$pr (squashed or rebased, so not an ancestor)"
   fi
 
@@ -674,7 +828,7 @@ cmd_rename() {
   [[ -f "$owt.redisdb" ]] && mv "$owt.redisdb" "$nwt.redisdb" && echo "  Redis allocation marker moved"
   # Same reason as the port file: named for the slug, so a rename would strand
   # them under the old one and teardown would no longer find them.
-  for ext in brief.md context.md; do
+  for ext in brief.md context.md overview.html; do
     [[ -f "$owt.$ext" ]] && mv "$owt.$ext" "$nwt.$ext" && echo "  $ext file moved"
   done
   rm -f "$nwt/$old.code-workspace"

@@ -317,6 +317,33 @@ close_iterm_tab() {
   " 2>/dev/null | grep -q closed
 }
 
+# Closes the slot's standalone window by clicking its own close button - the same
+# gesture DD's mouse would perform - NOT a forced/silent close and NOT `quit`.
+# That matters because a dirty-tree check only sees changes already written to
+# disk; a genuinely unsaved editor buffer (never saved, so git never saw it)
+# would otherwise be silently discarded the moment the worktree directory
+# vanishes under it. Clicking the real close button lets VS Code raise its own
+# "do you want to save?" prompt exactly as if DD had closed it himself, rather
+# than bypassing that protection. Matches by the window's own title, same as
+# snap_vscode_window - other worktree windows are not this slot's business to
+# touch. Silent no-op if Code is not running or the window is not found.
+close_vscode_window() {
+  local slug=$1
+  osascript <<OSA 2>/dev/null | grep -q closed
+tell application "System Events"
+  if exists (first process whose name is "Code") then
+    tell process "Code"
+      set targetWins to (windows whose name starts with "wt · $slug")
+      repeat with w in targetWins
+        click button 1 of w
+      end repeat
+      if (count of targetWins) > 0 then return "closed"
+    end tell
+  end if
+end tell
+OSA
+}
+
 # ---- browser workspace ---------------------------------------------------------
 # A slot's Chrome window mirrors the standalone VS Code window: a small generated
 # page as the front tab so the window is identifiable at a glance (Chrome has no
@@ -632,6 +659,10 @@ cmd_rm() {
     tmux kill-session -t "$session" && echo "  tmux session killed"
     close_iterm_tab "$tty" && echo "  iTerm2 tab closed"
   fi
+
+  # Not nested in the block above - the window's lifetime is not tied to the
+  # tmux session's, so this runs even if the session was already gone.
+  close_vscode_window "$slug" && echo "  VS Code window closed"
 
   [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" forget "$session" >/dev/null 2>&1 || true
 

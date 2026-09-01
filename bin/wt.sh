@@ -126,6 +126,46 @@ print(f"  standalone workspace written ({path.split('/')[-1]})")
 PY
 }
 
+# Magnet (window snapping) only responds to its own global keyboard shortcut -
+# there is no CLI or URL scheme - so this raises the just-opened window and sends
+# the shortcut as a keystroke via System Events. DD routinely has a dozen-plus VS
+# Code windows open across slots, so this deliberately does NOT do the obvious
+# thing (`tell application "Code" to activate` then snap whatever is frontmost) -
+# a brand-new window takes a beat to render (extension host, this workspace's
+# first-time Claude Code sidebar per "The standalone window" section), and firing
+# too early would grab and move an unrelated window DD is actively using instead
+# of the new one. Poll for the window by the TITLE write_standalone_ws gave it
+# ("wt · <slug> — ...") and raise that one specifically, up to 6s, before
+# snapping. ⌃⌥T is Magnet's default "right two-thirds" - see the window-layout
+# skill if that has been customised.
+snap_vscode_window() {
+  local slug=$1
+  # If the window is never found within the poll, the script errors out instead
+  # of falling through to the keystroke - the whole point is never sending Magnet's
+  # shortcut to whatever happens to be frontmost when the target was not confirmed.
+  osascript <<OSA >/dev/null 2>&1
+tell application "System Events"
+  set foundWin to false
+  repeat 20 times
+    if exists (first process whose name is "Code") then
+      tell process "Code"
+        if exists (first window whose name starts with "wt · $slug") then
+          set frontmost to true
+          perform action "AXRaise" of (first window whose name starts with "wt · $slug")
+          set foundWin to true
+          exit repeat
+        end if
+      end tell
+    end if
+    delay 0.3
+  end repeat
+  if not foundWin then error "wt · $slug window never appeared"
+  delay 0.3
+  keystroke "t" using {control down, option down}
+end tell
+OSA
+}
+
 # ---- windows ------------------------------------------------------------------
 # The session shape, in one place, so `new` and `restore` cannot drift apart. The
 # names are load-bearing: services.sh drives windows called rails/sidekiq/vite,
@@ -498,8 +538,12 @@ cmd_new() {
   if $open_ui; then
     echo "  opening the standalone VS Code window and an iTerm2 tab"
     if command -v code >/dev/null 2>&1; then
-      code "$wt/$slug.code-workspace" >/dev/null 2>&1 \
-        || echo "  (VS Code would not open it - by hand: code $wt/$slug.code-workspace)"
+      if code "$wt/$slug.code-workspace" >/dev/null 2>&1; then
+        snap_vscode_window "$slug" \
+          && echo "  VS Code window snapped to the right two-thirds (Magnet)"
+      else
+        echo "  (VS Code would not open it - by hand: code $wt/$slug.code-workspace)"
+      fi
     else
       echo "  (no 'code' on PATH - by hand: code $wt/$slug.code-workspace)"
     fi

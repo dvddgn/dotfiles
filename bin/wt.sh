@@ -746,12 +746,19 @@ cmd_done() {
   if git -C "$PARENT" merge-base --is-ancestor "$branch" origin/main 2>/dev/null; then
     merged_via="in origin/main"
   elif command -v gh >/dev/null 2>&1; then
-    local pr
+    local pr repo
+    # `gh repo view` with no --repo infers the repo from the CURRENT DIRECTORY,
+    # and `wt done` is required to run from OUTSIDE the slot (assert_outside,
+    # above) - so the caller could be sitting anywhere. Ask git directly, via the
+    # worktree's own remote (same as cmd_new's PR lookup does), rather than
+    # trusting wherever the shell happens to be.
+    repo=$(git -C "$wt" remote get-url origin 2>/dev/null \
+      | sed -E 's#^git@github\.com:##; s#^https://github\.com/##; s#\.git$##')
     # `.[0].number` alone prints the literal string "null" on no match (gh's -q is
     # jq under the hood), which is truthy to `[[ -n ]]` - so without `// empty` an
     # UNMERGED branch reads as "PR #null (squashed...)" and this refuses nothing.
     # See the same gotcha, caught before it shipped, in cmd_new's PR lookup.
-    pr=$(gh pr list --repo "$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" \
+    [[ -n "$repo" ]] && pr=$(gh pr list --repo "$repo" \
            --head "$branch" --state merged --json number -q '.[0].number // empty' 2>/dev/null)
     [[ -n "$pr" ]] && merged_via="PR #$pr (squashed or rebased, so not an ancestor)"
   fi

@@ -250,9 +250,11 @@ make_windows() {
 
 # The orchestrator is not a slot: it has no checkout of its own and drives the
 # others from the parent clone, so it gets agent windows and a shell and none of
-# the service windows. Listed here so `wt restore` brings it back after a reboot
-# along with everything else - nothing else creates it. Named "_orchestrator"
-# (leading underscore) so it sorts to the top of the iTerm2 tab list.
+# the service windows - including the open-worktree/close-worktree receiver
+# windows those two skills expect to find at positions 1/2. Listed here so
+# `wt restore` brings it all back after a reboot along with everything else -
+# nothing else creates it. Named "_orchestrator" (leading underscore) so it
+# sorts to the top of the iTerm2 tab list.
 EXTRA_SESSIONS=(_orchestrator)
 extra_session_dir() {
   case "$1" in
@@ -267,7 +269,17 @@ make_agent_windows() {
     echo "  $session: session already up"
     return 0
   fi
-  tmux new-session -d -s "$session" -c "$dir" -n claude
+  if [[ "$session" == "_orchestrator" ]]; then
+    # Positions 1/2: the persistent open-worktree/close-worktree receiver
+    # windows (see those skills). Left bare like every other window here -
+    # restore builds the slot, not the agent inside it; the skill starts
+    # `claude` itself the first time it finds one bare.
+    tmux new-session -d -s "$session" -c "$dir" -n open-worktree
+    tmux new-window -d -t "$session" -n close-worktree -c "$dir"
+    tmux new-window -d -t "$session" -n claude -c "$dir"
+  else
+    tmux new-session -d -s "$session" -c "$dir" -n claude
+  fi
   for ((i = 2; i <= n; i++)); do
     tmux new-window -d -t "$session" -n "claude$i" -c "$dir"
   done

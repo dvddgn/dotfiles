@@ -12,7 +12,7 @@
 # --no-ui skips all three, for a batch of slots or a session with no GUI.
 #
 # Usage:
-#   wt new    <slug> [branch] [--project <ref>] [--claudes N] [--no-rails] [--no-ui]
+#   wt new    <slug> [branch] [--project <ref>] [--claudes N] [--monitor N] [--no-rails] [--no-ui]
 #   wt agent  <slug> [window-name]
 #   wt project <slug> <project-ref>       # bind/change the Workspace project
 #   wt project <slug> --clear             # remove the project binding
@@ -27,8 +27,15 @@
 #   wt new dropzone                                  # branch feature/dropzone off origin/main
 #   wt new dropzone feature/property-profile-upload-ux
 #   wt new review-79 feature/profile-79-review --claudes 2
+#   wt new review-79 feature/profile-79-review --monitor 1   # open on display #1, then snap
 #   wt done dropzone                                 # the whole close-out, once the PR is merged
 #   wt rm  dropzone                                  # teardown alone, merged or not
+#
+# --monitor N (0-based, matches window_report.js's display index - #0 is the
+# main display) moves the new VS Code window onto that display before sending
+# Magnet's snap shortcut, since Magnet itself snaps within whichever display a
+# window is already on. Omit it and the window snaps on whatever display it
+# opened on, as before. Silently ignored (with a note) if N is out of range.
 #
 # `done` is the one to reach for after a merge: it refuses unless the branch is
 # actually in origin/main, then deletes the local and remote branch and tears the
@@ -126,6 +133,37 @@ print(f"  standalone workspace written ({path.split('/')[-1]})")
 PY
 }
 
+# Magnet only responds to its own keyboard shortcut, and that shortcut snaps
+# within whichever display the window is CURRENTLY on - there is no "snap onto
+# display N" shortcut. So targeting a display means moving the window there
+# first (a plain position set, not a Magnet action) and only then sending the
+# snap keystroke. Same math as the window-layout skill's window_report.js:
+# NSScreen frames are bottom-left origin (y-up); Accessibility's `set position`
+# wants top-left origin (y-down), so screen 0's height is used to flip every
+# other screen's y. Prints "x y" (a point just inside the display, not its
+# origin exactly) on success, nothing on an out-of-range index.
+display_origin() {
+  local idx=$1
+  osascript -l JavaScript -e '
+    ObjC.import("Cocoa");
+    function run(argv) {
+      var idx = parseInt(argv[0], 10);
+      var screens = $.NSScreen.screens;
+      var n = screens.count;
+      if (idx < 0 || idx >= n) { return ""; }
+      var raw = [];
+      for (var i = 0; i < n; i++) {
+        var f = screens.objectAtIndex(i).frame;
+        raw.push({x: f.origin.x, y: f.origin.y, w: f.size.width, h: f.size.height});
+      }
+      var primaryH = raw[0].h;
+      var d = raw[idx];
+      var flippedY = primaryH - (d.y + d.h);
+      return Math.round(d.x + 80) + " " + Math.round(flippedY + 80);
+    }
+  ' "$idx" 2>/dev/null
+}
+
 # Magnet (window snapping) only responds to its own global keyboard shortcut -
 # there is no CLI or URL scheme - so this raises the just-opened window and sends
 # the shortcut as a keystroke via System Events. DD routinely has a dozen-plus VS
@@ -138,8 +176,27 @@ PY
 # ("wt · <slug> — ...") and raise that one specifically, up to 6s, before
 # snapping. ⌃⌥T is Magnet's default "right two-thirds" - see the window-layout
 # skill if that has been customised.
+#
+# $2, if given, is a 0-based display index (window_report.js's numbering): the
+# window is moved onto that display - via `set position`, not a Magnet action -
+# after being raised and before the snap keystroke fires, so Magnet computes
+# the two-thirds region against the RIGHT display. An out-of-range index (or a
+# monitor setup that changed since) is reported and falls back to snapping in
+# place rather than failing the whole slot over window placement.
 snap_vscode_window() {
-  local slug=$1
+  local slug=$1 monitor=${2:-}
+  local moveblock=""
+  if [[ -n "$monitor" ]]; then
+    local origin tx ty
+    origin=$(display_origin "$monitor")
+    if [[ -n "$origin" ]]; then
+      tx=${origin% *}; ty=${origin#* }
+      moveblock="tell process \"Code\" to set position of targetWin to {$tx, $ty}
+  delay 0.2"
+    else
+      echo "  (display $monitor not found - snapping on the window's current display instead)" >&2
+    fi
+  fi
   # If the window is never found within the poll, the script errors out instead
   # of falling through to the keystroke - the whole point is never sending Magnet's
   # shortcut to whatever happens to be frontmost when the target was not confirmed.
@@ -150,8 +207,9 @@ tell application "System Events"
     if exists (first process whose name is "Code") then
       tell process "Code"
         if exists (first window whose name starts with "wt · $slug") then
+          set targetWin to (first window whose name starts with "wt · $slug")
           set frontmost to true
-          perform action "AXRaise" of (first window whose name starts with "wt · $slug")
+          perform action "AXRaise" of targetWin
           set foundWin to true
           exit repeat
         end if
@@ -161,6 +219,7 @@ tell application "System Events"
   end repeat
   if not foundWin then error "wt · $slug window never appeared"
   delay 0.3
+  $moveblock
   keystroke "t" using {control down, option down}
 end tell
 OSA
@@ -458,11 +517,12 @@ open_browser_workspace() {
 }
 
 cmd_new() {
-  local slug="" branch="" project_ref="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=true
+  local slug="" branch="" project_ref="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=true monitor=""
   while (($#)); do
     case "$1" in
       --claudes) claudes="${2:?--claudes needs a number}"; shift 2 ;;
       --project) project_ref="${2:?--project needs a Workspace project reference}"; shift 2 ;;
+      --monitor) monitor="${2:?--monitor needs a display index}"; shift 2 ;;
       --no-rails) start_rails=false; shift ;;
       --no-ui) open_ui=false; shift ;;
       -*) die "unknown flag $1" ;;
@@ -470,6 +530,7 @@ cmd_new() {
     esac
   done
   [[ -n "$slug" ]] || usage 1
+  [[ -z "$monitor" || "$monitor" =~ ^[0-9]+$ ]] || die "--monitor needs a non-negative display index, got '$monitor'"
 
   # tmux reads dots and colons as window and pane separators, so the slug cannot
   # contain them. DD types this name, so keep it short.
@@ -566,8 +627,8 @@ cmd_new() {
     echo "  opening the standalone VS Code window and an iTerm2 tab"
     if command -v code >/dev/null 2>&1; then
       if code "$wt/$slug.code-workspace" >/dev/null 2>&1; then
-        snap_vscode_window "$slug" \
-          && echo "  VS Code window snapped to the right two-thirds (Magnet)"
+        snap_vscode_window "$slug" "$monitor" \
+          && echo "  VS Code window snapped to the right two-thirds (Magnet)${monitor:+ on display $monitor}"
       else
         echo "  (VS Code would not open it - by hand: code $wt/$slug.code-workspace)"
       fi

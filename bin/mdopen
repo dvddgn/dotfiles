@@ -14,7 +14,7 @@ blockquote{border-left:4px solid #F4A838;margin:1em 0;padding:.2em 1em;color:#4b
 CSS
 for f in "$@"; do
   [ -f "$f" ] || { echo "not a file: $f" >&2; continue; }
-  case "${f##*.}" in md|markdown) ;; pdf|PDF|html|htm) open -a "Google Chrome" "$f"; continue ;; *) codeopen "$f"; continue ;; esac
+  case "${f##*.}" in md|markdown) ;; pdf|PDF|html|htm|png|jpg|jpeg|gif|svg) open -a "Google Chrome" "$f"; continue ;; *) codeopen "$f"; continue ;; esac
   abs="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
   html="$OUT_DIR/$(basename "${f%.*}")-$(echo -n "$abs" | md5 | cut -c1-8).html"
   bar="$OUT_DIR/bar-$$.html"

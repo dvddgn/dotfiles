@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Render a diff as a side-by-side, syntax-highlighted page and open it in the browser.
+#   diffopen                        # git diff of the working tree (run inside a repo)
+#   diffopen --staged               # staged changes
+#   diffopen HEAD~1                 # last commit vs working tree
+#   diffopen abc123~1 abc123 -- path/to/file   # any git diff arguments
+#   diffopen old.md new.md          # two plain files (no git needed)
+set -euo pipefail
+OUT_DIR="${TMPDIR:-/tmp}/mdopen"; mkdir -p "$OUT_DIR"
+patchfile="$(mktemp "$OUT_DIR/patch.XXXXXX")"
+if [ $# -eq 2 ] && [ -f "$1" ] && [ -f "$2" ]; then
+  title="$(basename "$1") vs $(basename "$2")"
+  diff -u "$1" "$2" > "$patchfile" || true
+else
+  title="git diff ${*:-working tree} ($(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"))"
+  git --no-pager diff --no-color --no-ext-diff "$@" > "$patchfile"
+fi
+[ -s "$patchfile" ] || { echo "no differences"; rm -f "$patchfile"; exit 0; }
+html="$OUT_DIR/diff-$(date +%H%M%S)-$RANDOM.html"
+python3 - "$patchfile" "$html" "$title" <<'PY'
+import sys, json, html
+patchfile, out, title = sys.argv[1:4]
+patch = open(patchfile, encoding='utf-8', errors='replace').read()
+page = f"""<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html@3.4.52/bundles/css/diff2html.min.css">
+<script src="https://cdn.jsdelivr.net/npm/diff2html@3.4.52/bundles/js/diff2html-ui.min.js"></script>
+<style>body{{margin:0;font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#fff}}
+.bar{{position:sticky;top:0;z-index:2;background:#f6f8fa;border-bottom:1px solid #d0d7de;padding:8px 16px;display:flex;gap:14px;align-items:center}}
+.bar b{{font-family:Menlo,monospace}} .bar button{{font:12px inherit;padding:3px 10px;cursor:pointer}}
+#d{{padding:0 12px 40px}}
+.d2h-code-line,.d2h-code-side-line{{white-space:normal!important;display:block;width:auto;padding-left:3.5em;text-indent:-1em}}
+.d2h-code-line-prefix{{display:inline;width:1em}}
+.d2h-code-line-ctn{{display:inline;white-space:pre-wrap!important;word-break:break-word;overflow-wrap:anywhere}}
+.d2h-file-side-diff,.d2h-file-diff{{overflow-x:visible}}
+.d2h-diff-table{{table-layout:auto;width:100%}}
+.d2h-code-side-linenumber,.d2h-code-linenumber{{width:4em!important;min-width:4em;box-sizing:border-box;white-space:nowrap;position:static!important;text-align:right;padding-right:6px}}
+.d2h-diff-tbody td:not(.d2h-code-side-linenumber):not(.d2h-code-linenumber){{width:auto}}</style></head><body>
+<div class="bar"><b>{html.escape(title)}</b><button onclick="render('side-by-side')">side by side</button><button onclick="render('line-by-line')">unified</button></div>
+<div id="d"></div>
+<script>
+const patch={json.dumps(patch)};
+function render(mode){{const ui=new Diff2HtmlUI(document.getElementById('d'),patch,{{drawFileList:true,matching:'lines',outputFormat:mode,highlight:true,fileContentToggle:true}});ui.draw();ui.highlightCode();if(mode==='side-by-side')syncRows();}}
+function syncRows(){{document.querySelectorAll('.d2h-file-side-diff').forEach((side,i,all)=>{{if(i%2)return;const L=side.querySelectorAll('tbody tr'),R=all[i+1].querySelectorAll('tbody tr');for(let k=0;k<Math.min(L.length,R.length);k++){{L[k].style.height=R[k].style.height='';const h=Math.max(L[k].getBoundingClientRect().height,R[k].getBoundingClientRect().height);L[k].style.height=R[k].style.height=h+'px';}}}});}}
+window.addEventListener('resize',()=>{{if(document.querySelector('.d2h-file-side-diff'))syncRows();}});
+render('side-by-side');
+</script></body></html>"""
+open(out, 'w').write(page)
+PY
+rm -f "$patchfile"
+open "$html"

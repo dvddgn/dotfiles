@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Render one or more markdown files to styled HTML and open them in the browser.
+# Usage: mdopen file.md [more.md ...]
+set -euo pipefail
+OUT_DIR="${TMPDIR:-/tmp}/mdopen"; mkdir -p "$OUT_DIR"
+CSS="$OUT_DIR/style.css"
+cat > "$CSS" <<'CSS'
+.path{position:sticky;top:0;background:#f6f8fa;border-bottom:1px solid #d0d7de;padding:8px 16px;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#57606a;margin:0 -24px 24px}.path b{color:#1f2937;font-family:Menlo,monospace}
+body{max-width:860px;margin:0 auto 40px;padding:0 24px;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#1f2937;background:#fff}
+h1,h2,h3{line-height:1.25;margin-top:1.6em}h1{font-size:1.9em;border-bottom:2px solid #1E2A59;padding-bottom:.2em}h2{font-size:1.4em;border-bottom:1px solid #e5e7eb;padding-bottom:.2em}
+code{background:#f3f4f6;padding:.1em .35em;border-radius:4px;font-size:.9em}pre{background:#f6f8fa;padding:14px;border-radius:6px;overflow-x:auto}pre code{background:none;padding:0}
+table{border-collapse:collapse;margin:1em 0;font-size:.95em}th,td{border:1px solid #e5e7eb;padding:6px 10px;vertical-align:top;text-align:left}th{background:#f9fafb}
+blockquote{border-left:4px solid #F4A838;margin:1em 0;padding:.2em 1em;color:#4b5563}a{color:#1d4ed8}hr{border:0;border-top:1px solid #e5e7eb;margin:2em 0}
+CSS
+for f in "$@"; do
+  [ -f "$f" ] || { echo "not a file: $f" >&2; continue; }
+  case "${f##*.}" in md|markdown) ;; pdf|PDF|html|htm) open -a "Google Chrome" "$f"; continue ;; *) codeopen "$f"; continue ;; esac
+  abs="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+  html="$OUT_DIR/$(basename "${f%.*}")-$(echo -n "$abs" | md5 | cut -c1-8).html"
+  bar="$OUT_DIR/bar-$$.html"
+  printf '<div class="path"><b>%s</b> &nbsp; %s</div>\n' "$(basename "$f")" "$abs" > "$bar"
+  pandoc "$abs" --from gfm --to html5 --standalone --css "$CSS" --metadata title="$(basename "$f")" --include-before-body "$bar" -o "$html"
+  rm -f "$bar"
+  open "$html"
+done

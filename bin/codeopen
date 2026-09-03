@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Render one or more source files as a syntax-highlighted page (VS Code dark look,
+# line numbers) and open them in the browser. Usage: codeopen file [more ...]
+set -euo pipefail
+OUT_DIR="${TMPDIR:-/tmp}/mdopen"; mkdir -p "$OUT_DIR"
+for f in "$@"; do
+  [ -f "$f" ] || { echo "not a file: $f" >&2; continue; }
+  abs="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+  ext="${f##*.}"; [ "$ext" = "$f" ] && ext="txt"
+  case "$ext" in
+    js|mjs|cjs) lang=javascript ;; ts) lang=typescript ;; rb|rake|gemspec) lang=ruby ;; py) lang=python ;;
+    sh|zsh|bash|command) lang=bash ;; erb|html|htm) lang=xml ;; yml|yaml) lang=yaml ;; json) lang=json ;;
+    css|scss) lang=scss ;; sql) lang=sql ;; toml|ini|conf|env) lang=ini ;; *) lang="$ext" ;;
+  esac
+  html="$OUT_DIR/$(basename "$f")-$(echo -n "$abs" | md5 | cut -c1-8).html"
+  body="$(python3 -c 'import html,sys;print(html.escape(open(sys.argv[1],encoding="utf-8",errors="replace").read()))' "$abs")"
+  cat > "$html" <<HTML
+<!doctype html><html><head><meta charset="utf-8"><title>$(basename "$f")</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+body{margin:0;background:#1e1e1e;color:#d4d4d4;font:13px/1.5 "SF Mono",Menlo,Consolas,monospace}
+.bar{position:sticky;top:0;background:#252526;color:#ccc;padding:8px 16px;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;border-bottom:1px solid #3c3c3c}
+.bar b{color:#fff}
+table{border-collapse:collapse;width:100%}td{padding:0 16px 0 0;vertical-align:top;white-space:pre}
+td.n{color:#858585;text-align:right;user-select:none;padding:0 12px 0 16px;width:1%}
+pre{margin:0;padding:12px 0;background:#1e1e1e}code.hljs{background:transparent;padding:0}
+</style></head><body>
+<div class="bar"><b>$(basename "$f")</b> &nbsp; $abs</div>
+<pre><code class="language-$lang" id="c">$body</code></pre>
+<script>
+hljs.highlightElement(document.getElementById('c'));
+const c=document.getElementById('c'),lines=c.innerHTML.split('\n');
+const t=document.createElement('table');
+lines.forEach((l,i)=>{const r=t.insertRow();const n=r.insertCell();n.className='n';n.textContent=i+1;r.insertCell().innerHTML=l||' ';});
+c.parentNode.replaceChild(t,c);
+</script></body></html>
+HTML
+  open "$html"
+done

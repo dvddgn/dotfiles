@@ -29,7 +29,8 @@
 #   wt new review-79 feature/profile-79-review --claudes 2
 #   wt new review-79 feature/profile-79-review --monitor 1   # open on display #1, then snap
 #   wt done dropzone                                 # the whole close-out, once the PR is merged
-#   wt rm  dropzone                                  # teardown alone, merged or not
+#   wt rm  dropzone                                  # park it (or abandon it): the branch stays
+#   wt new dropzone feature/dropzone                 # ...and reopen the same branch later
 #
 # --monitor N (0-based, matches window_report.js's display index - #0 is the
 # main display) moves the new VS Code window onto that display before sending
@@ -39,7 +40,11 @@
 #
 # `done` is the one to reach for after a merge: it refuses unless the branch is
 # actually in origin/main, then deletes the local and remote branch and tears the
-# slot down. `rm` skips the merge check, for a slot being abandoned.
+# slot down. `rm` skips the merge check and leaves the branch alone, which covers
+# both parking a slot (reopen it later with `wt new <slug> <branch>` - a branch
+# outlives any number of slots) and abandoning one. It refuses BEFORE tearing
+# anything down if the tree is dirty or the branch has commits on no remote;
+# --force overrides, and on that path means accepting the loss of both.
 #
 # NEITHER can be run from inside the slot. git will remove a worktree from within
 # itself quite happily, leaving every shell in that session in a directory that no
@@ -722,6 +727,46 @@ cmd_rm() {
 
   local wt="$BASE/aih-wt-$slug" session="wt-$slug"
   ACTION=rm assert_outside "$wt"
+
+  # Nothing is torn down until this passes. `rm` is the park/abandon path and
+  # parking is the common one - the slot goes, the branch stays, and the same work
+  # resumes later via `wt new <slug> <branch>` - so the two things worth losing
+  # sleep over are checked here, together, BEFORE the tmux session, the VS Code
+  # window and the side files are taken.
+  #
+  # Both used to be wrong. A dirty tree was caught only by `git worktree remove` at
+  # the very end, so the refusal arrived after everything else was already gone and
+  # read as "nothing happened". Unpushed commits were never checked at all: they
+  # survive teardown in $PARENT's object store, but held reachable by the local
+  # branch ref and nothing else, so deleting that branch by hand, closing out the
+  # wrong slug or working from the other Mac loses them with no warning at any
+  # point. This refuses rather than warns because the remedy - push - is impossible
+  # once the directory is gone, and a warning printed immediately before the thing
+  # it warns about is not a control.
+  #
+  # `done` has already verified the merge and reported its own counts by the time it
+  # calls in here, and it passes --force, so none of this runs on a close-out.
+  if ! $force && [[ -d "$wt" ]]; then
+    local branch_now dirty unpushed
+    branch_now=$(git -C "$wt" branch --show-current 2>/dev/null)
+    dirty=$(git -C "$wt" status --porcelain 2>/dev/null)
+    unpushed=$(git -C "$wt" log HEAD --not --remotes --oneline 2>/dev/null | wc -l | tr -d ' ')
+    if [[ -n "$dirty" ]]; then
+      echo "Error: uncommitted changes in $wt - nothing has been torn down." >&2
+      git -C "$wt" status --short >&2
+      echo "       Commit them, or re-run with --force once you have looked at them." >&2
+      exit 1
+    fi
+    if [[ "$unpushed" != "0" ]]; then
+      echo "Error: $unpushed commit(s) on $branch_now are on no remote - nothing has been torn down." >&2
+      git -C "$wt" log HEAD --not --remotes --oneline >&2
+      echo "       Parking this slot? Push first, so the branch reopens from anywhere:" >&2
+      echo "         git -C $wt push -u origin $branch_now" >&2
+      echo "       Abandoning it? Re-run with --force." >&2
+      exit 1
+    fi
+  fi
+
   echo "Removing slot '$slug'"
 
   if tmux has-session -t "$session" 2>/dev/null; then

@@ -492,9 +492,23 @@ for i, p in enumerate(data.get('New Bookmarks', [])):
     return
   fi
   echo "  Default iTerm2 profile's title settings drifted - repairing (Allow Title Setting=false, Title Components=3)"
-  /usr/libexec/PlistBuddy -c "Set :New\ Bookmarks:$idx:Allow\ Title\ Setting false" "$plist" 2>/dev/null
-  /usr/libexec/PlistBuddy -c "Set :New\ Bookmarks:$idx:Title\ Components 3" "$plist" 2>/dev/null
-  echo "  Fixed - if tab names still don't stick, quit and relaunch iTerm2 once (it caches prefs at launch)."
+  # `Set` FAILS when the key is absent, which is the normal state on a machine
+  # where these have never been set by hand - so fall back to `Add`, which
+  # needs an explicit type. Without this the repair silently no-ops forever on
+  # a fresh machine while still reporting success.
+  /usr/libexec/PlistBuddy -c "Set :New\ Bookmarks:$idx:Allow\ Title\ Setting false" "$plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :New\ Bookmarks:$idx:Allow\ Title\ Setting bool false" "$plist" 2>/dev/null
+  /usr/libexec/PlistBuddy -c "Set :New\ Bookmarks:$idx:Title\ Components 3" "$plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :New\ Bookmarks:$idx:Title\ Components integer 3" "$plist" 2>/dev/null
+  # Read back rather than assume - the whole point is that the write can fail quietly.
+  local now_allow now_comps
+  now_allow=$(/usr/libexec/PlistBuddy -c "Print :New\ Bookmarks:$idx:Allow\ Title\ Setting" "$plist" 2>/dev/null)
+  now_comps=$(/usr/libexec/PlistBuddy -c "Print :New\ Bookmarks:$idx:Title\ Components" "$plist" 2>/dev/null)
+  if [[ "$now_allow" == "false" && "$now_comps" == "3" ]]; then
+    echo "  Fixed - if tab names still don't stick, quit and relaunch iTerm2 once (it caches prefs at launch)."
+  else
+    echo "  Repair FAILED (Allow Title Setting=$now_allow, Title Components=$now_comps) - set them by hand in Settings > Profiles > Default > General."
+  fi
 }
 
 # ---- core dev/env sessions ------------------------------------------------------

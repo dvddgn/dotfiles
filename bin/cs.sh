@@ -510,6 +510,9 @@ for i, p in enumerate(data.get('New Bookmarks', [])):
 # new standing session DD wants - this function and `up` both read the same
 # file, so one entry covers both instead of hand-coding the layout twice.
 CORE_SESSIONS="$HOME/code/dvddgn/dotfiles/core-sessions.txt"
+# Per-machine session list, if this machine defines one (not tracked).
+[[ -f "$HOME/code/dvddgn/dotfiles/core-sessions.local.txt" ]] && \
+  CORE_SESSIONS="$HOME/code/dvddgn/dotfiles/core-sessions.local.txt"
 ensure_core_sessions() {
   [[ -f "$CORE_SESSIONS" ]] || return 0
   local name dir extra

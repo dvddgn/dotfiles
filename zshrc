@@ -232,7 +232,7 @@ alias logs100s='kamal app logs -d staging --lines 100'
 
 alias todo='cd ~/.openclaw/workspace && python3 scripts/tasks-overview.py'
 
-. "$HOME/.local/bin/env"
+[ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
 export PATH="$HOME/Library/Python/3.14/bin:$PATH"
 export PATH="$HOME/bin:$PATH"
 alias fav="$HOME/.openclaw/workspace/scripts/fav"
@@ -240,3 +240,6 @@ alias fav="$HOME/.openclaw/workspace/scripts/fav"
 # Claude Code Project — start/resume sessions with project context
 alias ccp="bash ~/code/dvddgn/workspace-app/ai-builder/scripts/ccp.sh"
 alias tmux-project="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
+
+# Per-machine overrides (not tracked - PATH entries, machine-specific aliases)
+[ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"

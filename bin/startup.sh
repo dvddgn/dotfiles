@@ -18,6 +18,9 @@
 # — never automatically, and never with live work still in it.
 
 CORE_SESSIONS="$HOME/code/dvddgn/dotfiles/core-sessions.txt"
+# Per-machine session list, if this machine defines one (not tracked).
+[[ -f "$HOME/code/dvddgn/dotfiles/core-sessions.local.txt" ]] && \
+  CORE_SESSIONS="$HOME/code/dvddgn/dotfiles/core-sessions.local.txt"
 TMUX_PROJECT="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
 
 typeset -A SESSION_DIR SESSION_EXTRA

@@ -44,6 +44,65 @@ if [ -d "$DEV_BIN" ]; then
   done
 fi
 
+# Symlink the extension-less scripts in `bin/` into ~/bin, which is what is on
+# PATH for them. `recap`, `mdopen`, `diffopen` and `codeopen` are typed as bare
+# commands, unlike the `*.sh` dev scripts above, which are referenced by path.
+USER_BIN="$HOME/bin"
+mkdir -p "$USER_BIN"
+for name in bin/*; do
+  case "$name" in
+    *.sh) continue ;;
+  esac
+  if [ ! -d "$name" ]; then
+    target="$USER_BIN/$(basename $name)"
+    backup $target
+    symlink $PWD/$name $target
+  fi
+done
+
+# Install the Claude Code statusline. The renderer is versioned here and gets
+# symlinked like everything else; the `statusLine` key that points Claude Code
+# at it lives in ~/.claude/settings.json, which is NOT symlinked - that file
+# also carries machine-specific plugins and permissions, so the key is added to
+# it in place, and only when it is absent.
+CLAUDE_DIR="$HOME/.claude"
+CLAUDE_SETTINGS="$CLAUDE_DIR/settings.json"
+STATUSLINE_KEY='"statusLine": { "type": "command", "command": "bash ~/.claude/statusline-command.sh" }'
+mkdir -p "$CLAUDE_DIR"
+chmod +x $PWD/claude/statusline-command.sh
+target="$CLAUDE_DIR/statusline-command.sh"
+backup $target
+symlink $PWD/claude/statusline-command.sh $target
+
+if ! command -v jq > /dev/null 2>&1; then
+  echo "-----> jq is not installed, so $CLAUDE_SETTINGS was left alone."
+  echo "       Add this key to it by hand to switch the statusline on:"
+  echo "         $STATUSLINE_KEY"
+elif [ ! -e "$CLAUDE_SETTINGS" ]; then
+  echo "-----> Creating $CLAUDE_SETTINGS with the statusLine key"
+  echo "{ $STATUSLINE_KEY }" | jq . > "$CLAUDE_SETTINGS"
+elif ! jq empty "$CLAUDE_SETTINGS" > /dev/null 2>&1; then
+  echo "-----> $CLAUDE_SETTINGS is not valid JSON, so it was left alone."
+  echo "       Add this key to it by hand to switch the statusline on:"
+  echo "         $STATUSLINE_KEY"
+elif [ "$(jq -r 'has("statusLine")' "$CLAUDE_SETTINGS")" = "true" ]; then
+  echo "-----> $CLAUDE_SETTINGS already has a statusLine key, leaving it alone"
+else
+  cp "$CLAUDE_SETTINGS" "$CLAUDE_SETTINGS.backup"
+  echo "-----> Copied your old $CLAUDE_SETTINGS to $CLAUDE_SETTINGS.backup"
+  if jq '. + { statusLine: { type: "command", command: "bash ~/.claude/statusline-command.sh" } }' \
+       "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" \
+     && jq empty "$CLAUDE_SETTINGS.tmp" > /dev/null 2>&1; then
+    mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+    echo "-----> Added the statusLine key to $CLAUDE_SETTINGS"
+  else
+    rm -f "$CLAUDE_SETTINGS.tmp"
+    echo "-----> Could not add the statusLine key to $CLAUDE_SETTINGS."
+    echo "       Add it by hand to switch the statusline on:"
+    echo "         $STATUSLINE_KEY"
+  fi
+fi
+
 # Install zsh-syntax-highlighting plugin
 CURRENT_DIR=`pwd`
 ZSH_PLUGINS_DIR="$HOME/.oh-my-zsh/custom/plugins"

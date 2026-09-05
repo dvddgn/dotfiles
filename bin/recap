@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# recap — set the bullet-point recap shown in the Claude Code statusline.
+#
+#   recap "first bullet" "second bullet"   replace the recap
+#   recap add "another bullet"             append one bullet
+#   recap                                  show the current recap
+#   recap clear                            remove it
+#
+# Scope: a recap belongs to ONE Claude session, keyed by $CLAUDE_CODE_SESSION_ID,
+# which the statusline receives as .session_id on stdin. Run outside a Claude
+# session (a plain shell, a slot's `shell` window) and it falls back to a
+# directory-scoped recap, which the statusline uses only when the session has
+# none of its own. Override either with RECAP_SESSION=<id>.
+
+set -euo pipefail
+
+RECAP_DIR="$HOME/.claude/recap"
+MAX_BULLETS=5
+mkdir -p "$RECAP_DIR"
+
+session="${RECAP_SESSION:-${CLAUDE_CODE_SESSION_ID:-}}"
+if [ -n "$session" ]; then
+  file="$RECAP_DIR/$session.txt"
+  scope="session $session"
+else
+  # Directory scope: same slug the statusline computes from .cwd
+  slug=$(printf '%s' "$PWD" | sed 's|/|-|g')
+  file="$RECAP_DIR/dir$slug.txt"
+  scope="directory $PWD (no Claude session in this shell)"
+fi
+
+# Drop recaps for sessions that ended long ago; nothing else cleans them up.
+find "$RECAP_DIR" -name '*.txt' -mtime +30 -delete 2>/dev/null || true
+
+write() {
+  : > "$file.tmp"
+  for b in "$@"; do
+    # One bullet is always one line: collapse internal whitespace, trim the ends.
+    line=$(printf '%s' "$b" | tr '\n\t' '  ' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    if [ -n "$line" ]; then printf '%s\n' "$line" >> "$file.tmp"; fi
+  done
+  # Keep only the most recent MAX_BULLETS; the statusline shows no more.
+  tail -n "$MAX_BULLETS" "$file.tmp" > "$file"
+  rm -f "$file.tmp"
+}
+
+case "${1:-}" in
+  "")
+    if [ -s "$file" ]; then
+      echo "recap for $scope:"
+      sed 's/^/  ▸ /' "$file"
+    else
+      echo "no recap set for $scope"
+    fi
+    ;;
+  clear)
+    rm -f "$file"
+    echo "recap cleared for $scope"
+    ;;
+  add)
+    shift
+    [ $# -gt 0 ] || { echo "usage: recap add \"bullet\"" >&2; exit 1; }
+    existing=()
+    if [ -s "$file" ]; then
+      while IFS= read -r line; do existing+=("$line"); done < "$file"
+    fi
+    write "${existing[@]}" "$@"
+    sed 's/^/  ▸ /' "$file"
+    ;;
+  -h|--help|help)
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *)
+    write "$@"
+    sed 's/^/  ▸ /' "$file"
+    ;;
+esac

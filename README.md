@@ -97,3 +97,37 @@ recap clear
 The output should end with `▸ test bullet`. Section 16 of the
 [`mac-setup`](https://github.com/dvddgn/mac-setup) guide covers installing this on a
 new machine from nothing.
+
+## How `install.sh` treats what is already there
+
+Every step in `install.sh` goes through the same two helpers, so their rules are worth
+knowing before adding a step.
+
+`backup()` moves a **real file** out of the way to `<target>.backup`. It deliberately
+does nothing to a symlink, there is nothing to preserve in a pointer.
+
+`symlink()` decides what to do about anything already sitting at the link path:
+
+| What is there | What happens |
+|---|---|
+| nothing | the link is created, and it says so |
+| a symlink already pointing at the right file | left alone, silently |
+| a **broken** symlink | replaced, and it says what it used to point at |
+| a symlink to a different real file | left alone, with a message saying where it points |
+| a real file | untouched by `symlink()`, `backup()` is what moves it first |
+
+The broken-symlink row is the one that was wrong until September 2026. `[ ! -e "$link" ]`
+follows the link, so it is *true* for a broken one, and the old helper announced the
+symlink and then let `ln -s` fail with `File exists`, exiting 0 with a link still pointing
+nowhere. A fresh machine hits this every time: the `dvddgn/claude-config` clone brings its
+own symlink to `claude/statusline-command.sh` in this repo, which is broken until this
+repo is cloned.
+
+Run the helper tests after changing either one:
+
+```bash
+./test/install-helpers-test.sh
+```
+
+They extract `backup` and `symlink` out of `install.sh` rather than copying them, so they
+cannot drift, and they run against a throwaway `$HOME`.

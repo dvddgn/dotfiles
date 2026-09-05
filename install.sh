@@ -12,12 +12,33 @@ backup() {
   fi
 }
 
+# Define a function which symlinks `file` to `link`.
+#
+# A pre-existing symlink at `link` needs care. `[ ! -e "$link" ]` follows the
+# link, so it is *true* for a broken one - the old shape announced the symlink
+# and then `ln -s` failed with "File exists", leaving a link pointing nowhere
+# and an exit status of 0. That is exactly what a fresh machine hits: the
+# `claude-config` clone (mac-setup section 14) brings its own symlink to
+# `dotfiles/claude/statusline-command.sh`, which is broken until `dotfiles`
+# itself is cloned. So: replace a broken link, leave a correct one alone, and
+# never clobber a working link that points somewhere else deliberately.
 symlink() {
   file=$1
   link=$2
-  if [ ! -e "$link" ]; then
+  if [ -L "$link" ]; then
+    current=`readlink "$link"`
+    if [ ! -e "$link" ]; then
+      echo "-----> Replacing the broken symlink at $link (pointed at $current)"
+      rm -f "$link"
+      ln -s "$file" "$link"
+    elif [ "$current" = "$file" ] || [ "$link" -ef "$file" ]; then
+      : # already points where we want it - nothing to do
+    else
+      echo "-----> $link is a symlink to $current, not $file - leaving it alone"
+    fi
+  elif [ ! -e "$link" ]; then
     echo "-----> Symlinking your new $link"
-    ln -s $file $link
+    ln -s "$file" "$link"
   fi
 }
 

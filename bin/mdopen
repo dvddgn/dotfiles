@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Render one or more markdown files to styled HTML and open them in the browser.
-# Usage: mdopen file.md [more.md ...]
+# Usage: mdopen [-n] file.md [more.md ...]
+#   -n, --no-open   render only, print the HTML path to stdout, do not open a tab.
+#                   For building reports that link to readable versions of files:
+#                   a file:// link to a .md renders as unwrapped plain text in Chrome.
 set -euo pipefail
+NO_OPEN=0
+case "${1:-}" in -n|--no-open) NO_OPEN=1; shift ;; esac
 OUT_DIR="${TMPDIR:-/tmp}/mdopen"; mkdir -p "$OUT_DIR"
 CSS="$OUT_DIR/style.css"
 cat > "$CSS" <<'CSS'
@@ -14,12 +19,17 @@ blockquote{border-left:4px solid #F4A838;margin:1em 0;padding:.2em 1em;color:#4b
 CSS
 for f in "$@"; do
   [ -f "$f" ] || { echo "not a file: $f" >&2; continue; }
-  case "${f##*.}" in md|markdown) ;; pdf|PDF|html|htm|png|jpg|jpeg|gif|svg) open -a "Google Chrome" "$f"; continue ;; *) codeopen "$f"; continue ;; esac
+  case "${f##*.}" in
+    md|markdown) ;;
+    pdf|PDF|html|htm|png|jpg|jpeg|gif|svg)
+      if [ "$NO_OPEN" = 1 ]; then printf '%s\n' "$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"; else open -a "Google Chrome" "$f"; fi; continue ;;
+    *) if [ "$NO_OPEN" = 1 ]; then codeopen -n "$f"; else codeopen "$f"; fi; continue ;;
+  esac
   abs="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
   html="$OUT_DIR/$(basename "${f%.*}")-$(echo -n "$abs" | md5 | cut -c1-8).html"
   bar="$OUT_DIR/bar-$$.html"
   printf '<div class="path"><b>%s</b> &nbsp; %s</div>\n' "$(basename "$f")" "$abs" > "$bar"
   pandoc "$abs" --from gfm --to html5 --standalone --css "$CSS" --metadata title="$(basename "$f")" --include-before-body "$bar" -o "$html"
   rm -f "$bar"
-  open "$html"
+  if [ "$NO_OPEN" = 1 ]; then printf '%s\n' "$html"; else open "$html"; fi
 done

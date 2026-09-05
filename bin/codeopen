@@ -2,6 +2,8 @@
 # Render one or more source files as a syntax-highlighted page (VS Code dark look,
 # line numbers) and open them in the browser. Usage: codeopen file [more ...]
 set -euo pipefail
+NO_OPEN=0
+case "${1:-}" in -n|--no-open) NO_OPEN=1; shift ;; esac
 OUT_DIR="${TMPDIR:-/tmp}/mdopen"; mkdir -p "$OUT_DIR"
 for f in "$@"; do
   [ -f "$f" ] || { echo "not a file: $f" >&2; continue; }
@@ -36,5 +38,5 @@ lines.forEach((l,i)=>{const r=t.insertRow();const n=r.insertCell();n.className='
 c.parentNode.replaceChild(t,c);
 </script></body></html>
 HTML
-  open "$html"
+  if [ "$NO_OPEN" = 1 ]; then printf '%s\n' "$html"; else open "$html"; fi
 done

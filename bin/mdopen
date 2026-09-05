@@ -29,7 +29,11 @@ for f in "$@"; do
   html="$OUT_DIR/$(basename "${f%.*}")-$(echo -n "$abs" | md5 | cut -c1-8).html"
   bar="$OUT_DIR/bar-$$.html"
   printf '<div class="path"><b>%s</b> &nbsp; %s</div>\n' "$(basename "$f")" "$abs" > "$bar"
-  pandoc "$abs" --from gfm --to html5 --standalone --css "$CSS" --metadata title="$(basename "$f")" --include-before-body "$bar" -o "$html"
+  # --embed-resources inlines the stylesheet (and any local images) into the
+  # file itself. Without it the page links $CSS by absolute path under $TMPDIR,
+  # so it only renders on this machine: emailed, copied, or published as a
+  # workspace artifact it arrives as unstyled markup.
+  pandoc "$abs" --from gfm --to html5 --standalone --embed-resources --css "$CSS" --metadata title="$(basename "$f")" --include-before-body "$bar" -o "$html"
   rm -f "$bar"
   if [ "$NO_OPEN" = 1 ]; then printf '%s\n' "$html"; else open "$html"; fi
 done

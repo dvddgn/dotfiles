@@ -2,9 +2,12 @@
 # Start/stop/restart rails, sidekiq, vite (or css for hre) in any tmux session
 # Usage: ./services.sh <session> <start|stop|restart> [rails|sidekiq|vite|css|all] [--take]
 #
-# On start/restart, services of the same kind running in OTHER sessions are
-# stopped first (shared Supabase DB + shared vite port make concurrent runs
-# messy). Pass --keep-others to skip this. Stop never touches other sessions.
+# On start/restart, services in OTHER sessions are left alone by default: every
+# checkout has its own Rails port, Redis database and Vite port (VITE_RUBY_PORT,
+# allocated below on first Vite start - slots and static clones alike since
+# 2026-09-06). Pass --take to stop the same service elsewhere first, which is only
+# right for a checkout that genuinely still shares (an old branch whose
+# vite.config.ts predates VITE_RUBY_PORT). Stop never touches other sessions.
 
 STATIC_SESSIONS=(aih c1 c2 c3 c4 c5 m1 m2 m3 m4 m5)
 # Worktree sessions (wt-<slug>) are created on demand, so discover them from tmux
@@ -313,7 +316,11 @@ SIDEKIQ_CMD="${REDIS_DB:+REDIS_URL=redis://localhost:6379/$REDIS_DB }bundle exec
 # which is very likely another checkout's Vite. The capability is checked rather
 # than assumed, so this works either side of PR #769 landing.
 VITE_PORT=""
-if [[ "$SESSION" == wt-* && -d "$SESSION_DIR" && "$PORT" =~ ^[0-9]+$ ]] \
+# Every session, not only wt-*: the static clones (aih, c1-c5, m1-m5) were left out
+# of this branch and so kept sharing 3036 - the first Vite up served JavaScript to
+# all six loop lanes at once (found 2026-09-06). Their port is Rails port + 30 too,
+# so aih -> 3030, c1 -> 3031 ... m5 -> 3040, clear of 3036/3037 and of the slots' 3042+.
+if [[ -d "$SESSION_DIR" && "$PORT" =~ ^[0-9]+$ ]] \
    && grep -q 'VITE_RUBY_PORT' "$SESSION_DIR/vite.config.ts" 2>/dev/null; then
   VITE_PORT=$(grep -h '^VITE_RUBY_PORT=' "$SESSION_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2)
   if [[ -z "$VITE_PORT" ]]; then

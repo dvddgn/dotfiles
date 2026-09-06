@@ -186,6 +186,12 @@ vs() {
 # wt new <slug> [branch] [--claudes N] [--no-rails] | wt rm <slug> | wt ls
 alias wt="~/code/dvddgn/wt.sh"
 
+# The same idea for workspace-app, and deliberately much smaller - no Rails,
+# no Sidekiq, no Vite, no services.sh. Sessions are wsw-<slug>, NOT wt-<slug>:
+# that namespace is AIH's and cs.sh classifies it as an AIH slot.
+# wsw new <slug> [branch] [--no-dev] | wsw rm <slug> | wsw ls | wsw restore
+alias wsw="~/code/dvddgn/wsw.sh"
+
 # Claude sessions for a directory, labelled: cs | cs -g email | cs r 3
 alias cs="~/code/dvddgn/cs.sh"
 

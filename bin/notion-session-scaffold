@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""
+notion-session-scaffold — regenerate the structural skeleton of the "All Sessions
+Reference" Notion note from live tmux + status-file ground truth.
+
+Forces a fresh `cs snapshot`, reads ~/.claude/status/{sessions,windows}.txt, classifies
+every session by the note's own Type legend, and emits the Notion <table> blocks
+(remote-* small tables + the combined "Everything else" table) with every real
+window/session accounted for. Narrative cells ("Claude session / task") are pre-filled
+only where confidently derivable (infra plumbing windows, a real live Claude session
+name from sessions.txt) — everything else is left blank, exactly matching the note's
+own documented convention ("blank where the window exists but wasn't individually
+checked this refresh"). Hand-fill the blanks, then push the result into the Notion page.
+
+This never talks to Notion itself — it only produces the scaffold on stdout / a file.
+"""
+import argparse
+import os
+import re
+import subprocess
+import sys
+import time
+
+STATUS_DIR = os.path.expanduser("~/.claude/status")
+SESSIONS_TXT = os.path.join(STATUS_DIR, "sessions.txt")
+WINDOWS_TXT = os.path.join(STATUS_DIR, "windows.txt")
+
+INFRA_WINDOW_NAMES = {"shell", "rails", "sidekiq", "vite", "cx1", "css", "health"}
+CORE_SESSIONS = {"aih", "c1", "c2", "c3", "c4", "c5", "m1", "m1-notes",
+                  "m2", "m3", "m4", "m5", "ws", "claw", "hre"}
+
+# A live Claude session name in sessions.txt is a real name if it doesn't look like
+# the transient spinner status text Claude Code shows for an unnamed conversation
+# ("Cooked for 3m 12s", "Baked for 40s", "Sautéed for 1m 2s", ...).
+SPINNER_RE = re.compile(r"^[A-Za-zÀ-ÿ]+ for \d+[ms]", re.UNICODE)
+
+
+def force_fresh_snapshot(wait_s: float = 40.0) -> None:
+    # cs-snapshot does a capture-pane read per window across the whole tmux fleet
+    # (~50 sessions, ~240 windows) - 15s (the skill doc's own figure) is not enough
+    # margin and reliably reads a mid-write file. Wait for windows.txt's mtime to
+    # advance past "now", with 40s as a generous ceiling.
+    uid = os.getuid()
+    before = os.path.getmtime(WINDOWS_TXT) if os.path.exists(WINDOWS_TXT) else 0
+    started = time.time()
+    subprocess.run(
+        ["launchctl", "kickstart", "-k", f"gui/{uid}/com.dvddgn.cs-snapshot"],
+        check=False, capture_output=True,
+    )
+    deadline = time.time() + wait_s
+    while time.time() < deadline:
+        time.sleep(2)
+        if os.path.exists(WINDOWS_TXT) and os.path.getmtime(WINDOWS_TXT) > max(before, started):
+            return
+    print(f"# warning: windows.txt mtime did not advance within {wait_s}s "
+          f"- data may be stale", file=sys.stderr)
+
+
+def parse_windows(path: str):
+    """-> {session: [(index, name), ...]} in file order."""
+    windows = {}
+    with open(path) as f:
+        next(f)  # header
+        for line in f:
+            parts = line.rstrip("\n").split(None, 2)
+            if len(parts) < 3:
+                continue
+            session, index = parts[0], parts[1]
+            rest = parts[2]
+            # NAME is a fixed-width column; take the first whitespace-delimited token
+            name = rest.split()[0] if rest.split() else ""
+            windows.setdefault(session, []).append((index, name))
+    return windows
+
+
+def parse_sessions(path: str):
+    """-> {session_or_session:window: claude_session_name}"""
+    names = {}
+    with open(path) as f:
+        next(f)  # header
+        for line in f:
+            line = line.rstrip("\n")
+            if not line.strip():
+                continue
+            m = re.match(r"^(\S+)\s+\S+.*?\s{2,}(\S.*)$", line)
+            if not m:
+                continue
+            key, claude_name = m.group(1), m.group(2).strip()
+            names[key] = claude_name
+    return names
+
+
+def get_active_windows():
+    """-> {session: window_index} for the currently active window in every session."""
+    out = subprocess.run(
+        ["tmux", "list-windows", "-a", "-F",
+         "#{session_name}\t#{window_index}\t#{window_active}"],
+        capture_output=True, text=True, check=False,
+    ).stdout
+    active = {}
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        session, index, is_active = parts
+        if is_active == "1":
+            active[session] = index
+    return active
+
+
+def classify(session: str) -> str:
+    if session == "_orchestrator":
+        return "orchestrator"
+    if session.startswith("wt-"):
+        return "worktree"
+    if session.startswith("ops-"):
+        return "personal-ops"
+    if session.startswith("prj-"):
+        return "personal-prj"
+    if session in CORE_SESSIONS:
+        return "core"
+    return "other"
+
+
+def narrative_for(session: str, index: str, window_name: str, active_idx, claude_names: dict) -> str:
+    if window_name in INFRA_WINDOW_NAMES:
+        return "infra"
+    # sessions.txt's per-window key (session:window) always describes that specific
+    # window and is safe to use regardless of focus. Its bare per-session key only
+    # describes whichever window currently has focus - applying it to a different,
+    # non-active window in the same session would misattribute another window's title.
+    key = f"{session}:{window_name}"
+    name = claude_names.get(key)
+    if name and not SPINNER_RE.match(name):
+        return name
+    if index == active_idx:
+        name = claude_names.get(session)
+        if name and not SPINNER_RE.match(name):
+            return name
+    return ""
+
+
+def emit_remote_table(session: str, win_list, active_idx, claude_names) -> str:
+    lines = [f'### {session}',
+             '<table fit-page-width="true" header-row="true">',
+             '<tr>', '<td>**Window**</td>', '<td>**Claude session / task**</td>', '</tr>']
+    for index, name in win_list:
+        label = name + (" (active)" if index == active_idx else "")
+        if name == "shell":
+            narrative = "infra (anchor window, keeps session alive)"
+        else:
+            narrative = narrative_for(session, index, name, active_idx, claude_names)
+        lines += ['<tr>', f'<td>{label}</td>', f'<td>{narrative}</td>', '</tr>']
+    lines.append('</table>')
+    return "\n".join(lines)
+
+
+def emit_combined_row(session: str, index: str, name: str, active_idx: str,
+                       claude_names: dict) -> str:
+    label = name + (" (active)" if index == active_idx else "")
+    typ = classify(session)
+    narrative = narrative_for(session, index, name, active_idx, claude_names)
+    return (f'<tr>\n<td>{session}</td>\n<td>{label}</td>\n'
+            f'<td>{typ}</td>\n<td>{narrative}</td>\n</tr>')
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--no-refresh", action="store_true",
+                     help="skip forcing a fresh cs snapshot (use existing status files as-is)")
+    ap.add_argument("-o", "--out", help="write scaffold to this file instead of stdout")
+    args = ap.parse_args()
+
+    if not args.no_refresh:
+        print("# forcing fresh snapshot...", file=sys.stderr)
+        force_fresh_snapshot()
+
+    windows = parse_windows(WINDOWS_TXT)
+    claude_names = parse_sessions(SESSIONS_TXT)
+    active = get_active_windows()
+
+    remote_sessions = sorted(s for s in windows if s.startswith("remote-"))
+    other_sessions = sorted(s for s in windows if not s.startswith("remote-"))
+
+    out = []
+    out.append("## remote-\\* sessions (dedicated phone/Remote-Control kickoffs)")
+    for s in remote_sessions:
+        out.append(emit_remote_table(s, windows[s], active.get(s), claude_names))
+
+    out.append("\n## Everything else")
+    out.append('<table fit-page-width="true" header-row="true">')
+    out.append('<tr>')
+    out.append('<td>**Session**</td><td>**Window**</td><td>**Type**</td>'
+                '<td>**Claude session / task**</td>')
+    out.append('</tr>')
+    for s in other_sessions:
+        for index, name in windows[s]:
+            out.append(emit_combined_row(s, index, name, active.get(s), claude_names))
+    out.append('</table>')
+
+    text = "\n".join(out) + "\n"
+    if args.out:
+        with open(args.out, "w") as f:
+            f.write(text)
+        print(f"# wrote scaffold to {args.out}", file=sys.stderr)
+        print(f"# {len(remote_sessions)} remote-* sessions, "
+              f"{sum(len(windows[s]) for s in other_sessions)} rows in the combined table",
+              file=sys.stderr)
+    else:
+        print(text)
+
+
+if __name__ == "__main__":
+    main()

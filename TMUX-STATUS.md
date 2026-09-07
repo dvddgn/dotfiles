@@ -113,6 +113,32 @@ committed because they describe DD's live personal sessions.
 - `~/.claude/status/contexts.txt`: one row per live session, including source.
 - `~/.claude/status/windows.txt`: one row per live window, including purpose.
 
+### A dead tmux server must never overwrite the snapshot
+
+`cmd_snapshot` refuses to write anything when the tmux server has **zero sessions**, and
+refreshes only `servers.txt` (which reads the machine, not tmux). This is not a nicety.
+`com.dvddgn.cs-snapshot` runs with `RunAtLoad`, so after a reboot it fires within minutes
+against a server that has not been rebuilt yet; without the guard it records nothing live
+and writes that over `sessions.txt`, which is gitignored and therefore has no copy
+anywhere. On 2026-09-07 that turned a 57-session map into a 0-session map six minutes
+after the Mac came back, and the layout had to be reconstructed by hand from
+`~/.claude/projects` transcripts cross-checked against the Notion *All Sessions
+Reference* note.
+
+The test is deliberately "the server has no sessions", not "no live Claude was found":
+DD closing every agent on purpose must still snapshot, or the map goes stale and never
+recovers. A server with zero sessions has nothing to record by definition, so the guard
+cannot produce a false positive.
+
+### The 256-fd ceiling constrains how big the tree can get
+
+Each window and each attached client costs the server a file descriptor, against a soft
+`maxfiles` of **256**. Past roughly 240 windows the server stops accepting **new**
+clients while every attached one keeps working, and reports `server exited unexpectedly`
+to anything that tries — which reads exactly like a crash and is not one. Keep the tree
+near its historical ~162 windows; `~/.claude/status/NOTE-fd-limit.md` has the diagnosis,
+the `kill -HUP` recovery, and the `launchctl limit maxfiles` fix.
+
 ## Safe change procedure
 
 1. Change `dotfiles/bin/tmux-project.sh` for layout or inference behaviour.

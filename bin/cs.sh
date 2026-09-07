@@ -196,6 +196,26 @@ TMUX_PROJECT="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
 cmd_snapshot() {
   local n=0 seen=""
   mkdir -p "$STATUS"
+
+  # A DEAD tmux server is not a snapshot, it is the absence of one - never let it
+  # overwrite the files, because that is precisely the moment they are the only
+  # record of what was running. This LaunchAgent has RunAtLoad, so after a reboot
+  # it fires within minutes against an empty server; on 2026-09-07 that turned a
+  # 57-session map into a 0-session map six minutes after the Mac came back, and
+  # sessions.txt is gitignored, so there was no copy to fall back on. Recovered
+  # by hand from ~/.claude/projects transcripts plus the Notion "All Sessions
+  # Reference" note - an hour of work this one line prevents.
+  #
+  # The test is "no tmux sessions at all", not "no live Claude": DD genuinely
+  # closing every agent must still snapshot (otherwise the map goes stale and
+  # never recovers), whereas a server with zero sessions has nothing to record
+  # by definition, so this cannot produce a false positive.
+  if [[ $(tmux list-sessions 2>/dev/null | wc -l) -eq 0 ]]; then
+    echo "tmux server is empty (rebooted?) - snapshot SKIPPED, existing files left intact"
+    write_servers
+    return 0
+  fi
+
   : > "$MAP.tmp"
   # Walk WINDOWS, not sessions: reading a session gives only its ACTIVE pane, so a
   # session with three agent windows recorded one, and `ws` - whose active window

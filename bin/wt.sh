@@ -71,12 +71,37 @@ BASE="$HOME/code/dvddgn"
 # $PARENT/.git/worktrees/, so this clone is load-bearing: it must keep existing,
 # and its own checkout should stay on main and idle. Override for a different
 # clone or repo - existing slots stay bound to whichever parent created them.
-PARENT="${AIH_PARENT:-$BASE/advice-innovation-hub-m1}"
+# Default parent, used when CREATING a slot. The two Macs lay their clones out
+# differently - the loop-runner Mac has advice-innovation-hub-m1, the portable one
+# has only advice-innovation-hub - so take the first candidate that exists instead
+# of assuming either. AIH_PARENT still wins if set.
+PARENT=""
+for _candidate in "${AIH_PARENT:-}" "$BASE/advice-innovation-hub-m1" "$BASE/advice-innovation-hub"; do
+  [[ -n "$_candidate" && -d "$_candidate/.git" ]] && { PARENT="$_candidate"; break; }
+done
+unset _candidate
+# Fall back to the historical default so the error message below still names
+# something, rather than dying on an empty path.
+PARENT="${PARENT:-$BASE/advice-innovation-hub-m1}"
 SERVICES="$BASE/services.sh"
 CS="$BASE/cs.sh"
 TMUX_PROJECT="$BASE/dotfiles/bin/tmux-project.sh"
 
 die() { echo "Error: $*" >&2; exit 1; }
+
+# An existing slot is bound to whichever clone created it: its .git file reads
+# "gitdir: <parent>/.git/worktrees/<name>". Read the parent back from there rather
+# than trusting the default, so teardown works from any machine and stays correct
+# even when several clones on one machine have each created slots.
+bind_parent_to_slot() {
+  local wt=$1 gitdir derived
+  [[ -f "$wt/.git" ]] || return 0
+  gitdir=$(sed -n 's/^gitdir: //p' "$wt/.git" | head -1)
+  [[ -n "$gitdir" ]] || return 0
+  derived=${gitdir%/.git/worktrees/*}
+  [[ -n "$derived" && -d "$derived/.git" ]] || return 0
+  PARENT="$derived"
+}
 
 usage() {
   sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'
@@ -727,6 +752,7 @@ cmd_rm() {
 
   local wt="$BASE/aih-wt-$slug" session="wt-$slug"
   ACTION=rm assert_outside "$wt"
+  bind_parent_to_slot "$wt"
 
   # Nothing is torn down until this passes. `rm` is the park/abandon path and
   # parking is the common one - the slot goes, the branch stays, and the same work
@@ -842,6 +868,7 @@ cmd_done() {
 
   local wt="$BASE/aih-wt-$slug" session="wt-$slug"
   ACTION=done assert_outside "$wt"
+  bind_parent_to_slot "$wt"
   [[ -d "$wt" ]] || die "no worktree at $wt"
 
   local branch

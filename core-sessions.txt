@@ -13,17 +13,25 @@
 # `cs iterm`'s self-heal read this same file, so one entry covers both.
 # Directory is relative to ~/code/dvddgn/ unless it starts with ~ or /.
 
+# The clones (c1-c5, m1-m5) deliberately carry NO service windows. Every window
+# costs the tmux server a file descriptor against a soft `maxfiles` of 256, and
+# rebuilding all of these at the full rails,sidekiq,vite layout is ~30 windows
+# nobody is using: cs.sh's own comment notes these sessions aren't day-to-day and
+# don't even earn an iTerm tab. `srv c1` / `srv m1` creates rails/sidekiq/vite on
+# demand anyway - services.sh's ensure_window() is session-agnostic - so nothing
+# is lost, it just isn't built up front. See ~/.claude/status/NOTE-fd-limit.md;
+# on 2026-09-07 a full rebuild reached 241 windows and wedged the server.
 aih  | advice-innovation-hub          | rails,sidekiq,vite
-c1   | advice-innovation-hub-clone-1  | rails,sidekiq,vite
-c2   | advice-innovation-hub-clone-2  | rails,sidekiq,vite
-c3   | advice-innovation-hub-clone-3  | rails,sidekiq,vite
-c4   | advice-innovation-hub-clone-4  | rails,sidekiq,vite
-c5   | advice-innovation-hub-clone-5  | rails,sidekiq,vite
-m1   | advice-innovation-hub-m1       | rails,sidekiq,vite
-m2   | advice-innovation-hub-m2       | rails,sidekiq,vite
-m3   | advice-innovation-hub-m3       | rails,sidekiq,vite
-m4   | advice-innovation-hub-m4       | rails,sidekiq,vite
-m5   | advice-innovation-hub-m5       | rails,sidekiq,vite
+c1   | advice-innovation-hub-clone-1  |
+c2   | advice-innovation-hub-clone-2  |
+c3   | advice-innovation-hub-clone-3  |
+c4   | advice-innovation-hub-clone-4  |
+c5   | advice-innovation-hub-clone-5  |
+m1   | advice-innovation-hub-m1       |
+m2   | advice-innovation-hub-m2       |
+m3   | advice-innovation-hub-m3       |
+m4   | advice-innovation-hub-m4       |
+m5   | advice-innovation-hub-m5       |
 ws   | workspace-app                  | health:./ai-builder/scripts/health-check.sh,localhost
 hre  | horizons-real-estate           | rails,css
 claw | ~/.openclaw/workspace          |

@@ -155,6 +155,38 @@ cct() {
   tmux attach-session -t "$name"
 }
 
+# Attach to a tmux session from a phone (or any small screen) without shrinking the
+# same session's desktop iTerm2 tabs.
+#
+# tmux's `window-size` is `latest` (the stock default, and what this setup uses): the
+# client with the most recent activity sets the window size, so a plain `tmux attach`
+# from a phone reflows every desktop tab showing that session. `-f ignore-size` takes
+# this client out of that calculation entirely, so the desktop is untouched and the
+# phone just sees the top-left of a too-big window. `-f active-pane` gives the phone its
+# own active pane, so moving around on it doesn't move the desktop's cursor.
+#
+# Deliberately NOT fixed with a global `window-size largest` in ~/.tmux.conf: that would
+# crop whichever desktop client is the smaller of two attached to the same session (the
+# `aih` session routinely has a 90-col and a 115-col client at once).
+#
+#   pt          → list sessions
+#   pt m1       → attach to m1, phone-safe
+#
+# Already attached and forgot? `tmux refresh-client -f ignore-size,active-pane`.
+pt() {
+  local name="$1"
+  if [[ -z "$name" ]]; then
+    tmux list-sessions -F '#{session_name}' 2>/dev/null \
+      || { echo "no tmux server running" >&2; return 1; }
+    return 0
+  fi
+  if ! tmux has-session -t "$name" 2>/dev/null; then
+    echo "no such tmux session: $name" >&2
+    return 1
+  fi
+  tmux attach-session -t "$name" -f ignore-size,active-pane
+}
+
 # Open VS Code workspace by session name
 vs() {
   local base="$HOME/code/dvddgn"

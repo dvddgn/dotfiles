@@ -122,8 +122,41 @@ remote_sessions() {
   printf '%s\n' "$out" | grep -v '^$' | sort
 }
 
-osa() { [[ $DRY_RUN -eq 1 ]] && { echo "  [dry-run] osascript: ${1//$'\n'/ }" | cut -c1-150; return 0; }
-        osascript -e "$1" >/dev/null 2>&1; }
+# Never discard osascript's stderr. The first version of this did (`>/dev/null 2>&1`) and
+# so could not tell a created tab from a refused one — it printed "18 tabs opened" while
+# opening none. AppleScript failures here are ordinary, not exotic: iTerm2 not installed,
+# or macOS Automation permission not yet granted to the calling terminal, which fails with
+# error -1743 and no dialog if the user has previously denied it.
+osa() {
+  if [[ $DRY_RUN -eq 1 ]]; then
+    echo "  [dry-run] osascript: ${1//$'\n'/ }" | cut -c1-150
+    return 0
+  fi
+  osa_get "$1" >/dev/null
+}
+
+# Same, but hands back what AppleScript returned. Split from osa() so that the many
+# fire-and-forget calls (create tab, set name, close tab) stay silent — `create tab`
+# returns a tab object whose description would otherwise be printed 18 times.
+osa_get() {
+  local out
+  if ! out=$(osascript -e "$1" 2>&1); then
+    if [[ "$out" == *"-1743"* || "$out" == *"Not authorized"* ]]; then
+      die "macOS blocked this from controlling iTerm2.
+  Grant it in System Settings -> Privacy & Security -> Automation: find your terminal
+  app in the list and enable iTerm. Then run rcs iterm again."
+    fi
+    die "AppleScript failed: $out"
+  fi
+  printf '%s' "$out"
+}
+
+require_iterm() {
+  [[ $DRY_RUN -eq 1 ]] && return 0
+  [[ -d /Applications/iTerm.app || -d "$HOME/Applications/iTerm.app" ]] \
+    || die "iTerm2 is not installed on this machine — rcs iterm builds an iTerm2 tab layout.
+  Install iTerm2, or use 'rcs ssh' for a plain shell and 'rcs' to list sessions."
+}
 
 open_tab() {  # win_id, session
   osa "
@@ -148,13 +181,18 @@ cmd_ssh() { preflight; exec ssh -t "$USER_AT@$HOST"; }
 cmd_tab() {
   local sess="$1"
   [[ -n "$sess" ]] || die "usage: rcs tab <session>"
+  require_iterm
   preflight
   remote_sessions | grep -qx "$sess" || die "no tmux session '$sess' on the home Mac. Run 'rcs' to list them."
   osa 'tell application "iTerm2" to activate'
   local win_id
   if [[ $DRY_RUN -eq 1 ]]; then win_id="<current>"; else
-    win_id=$(osascript -e 'tell application "iTerm2" to id of current window' 2>/dev/null) \
-      || win_id=$(osascript -e 'tell application "iTerm2" to id of (create window with default profile)')
+    # A no-window iTerm2 makes "id of current window" fail; that one is expected, so it
+    # stays a plain osascript with a fallback rather than going through osa_get's die.
+    win_id=$(osascript -e 'tell application "iTerm2" to id of current window' 2>/dev/null)
+    [[ "$win_id" =~ ^[0-9]+$ ]] \
+      || win_id=$(osa_get 'tell application "iTerm2" to id of (create window with default profile)')
+    [[ "$win_id" =~ ^[0-9]+$ ]] || die "iTerm2 did not return a usable window id ('$win_id')." 
   fi
   open_tab "$win_id" "$sess"
   sleep 4   # a name set too early is clobbered when the shell reports its own title
@@ -163,6 +201,7 @@ cmd_tab() {
 }
 
 cmd_iterm() {
+  require_iterm
   preflight
   local -a sessions=() win_ids=() tab_ids=()
   local work_win personal_win sess win_id
@@ -179,8 +218,12 @@ cmd_iterm() {
 
   osa 'tell application "iTerm2" to activate'
   if [[ $DRY_RUN -eq 1 ]]; then work_win="<work>"; personal_win="<personal>"; else
-    work_win=$(osascript -e 'tell application "iTerm2" to id of (create window with default profile)')
-    personal_win=$(osascript -e 'tell application "iTerm2" to id of (create window with default profile)')
+    work_win=$(osa_get 'tell application "iTerm2" to id of (create window with default profile)')
+    personal_win=$(osa_get 'tell application "iTerm2" to id of (create window with default profile)')
+    # An empty or non-numeric id silently poisons every `tell window id ...` that follows,
+    # which is how 18 tabs can be "opened" into nothing.
+    [[ "$work_win" =~ ^[0-9]+$ && "$personal_win" =~ ^[0-9]+$ ]] \
+      || die "iTerm2 did not return usable window ids (work='$work_win' personal='$personal_win'). Is iTerm2 running?"
   fi
 
   # DD's own Work/Personal split, mirrored from cs.sh so the remote layout matches the
@@ -206,7 +249,16 @@ cmd_iterm() {
   osa "tell application \"iTerm2\" to tell window id $work_win to if (count of tabs) > 1 then close tab 1"
   osa "tell application \"iTerm2\" to tell window id $personal_win to if (count of tabs) > 1 then close tab 1"
 
-  echo "${#s2[@]} tabs opened across 2 iTerm2 windows (Work / Personal), each attached to the home Mac over Tailscale."
+  # Report what EXISTS, not what was attempted. Counting the tabs is the only statement
+  # here that the user can act on; "I issued 18 commands" is not.
+  local work_tabs personal_tabs total
+  work_tabs=$(osa_get "tell application \"iTerm2\" to count tabs of window id $work_win")
+  personal_tabs=$(osa_get "tell application \"iTerm2\" to count tabs of window id $personal_win")
+  total=$((work_tabs + personal_tabs))
+  if [[ $total -ne ${#s2[@]} ]]; then
+    echo "WARNING: asked for ${#s2[@]} tabs but iTerm2 reports $total (Work $work_tabs, Personal $personal_tabs)." >&2
+  fi
+  echo "$total tabs open across 2 iTerm2 windows (Work $work_tabs / Personal $personal_tabs), each attached to the home Mac over Tailscale."
   echo "Detach a tab with Ctrl-a d (leaves the session running), then 'exit' to close the SSH."
 }
 

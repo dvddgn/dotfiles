@@ -250,6 +250,13 @@ alias cs="~/code/dvddgn/cs.sh"
 # itself — including when run inside an SSH session, where the shell IS the home Mac's.
 alias rcs="~/code/dvddgn/dotfiles/bin/rcs.sh"
 
+# Expose a worktree slot's dev server to the tailnet, so a browser on the laptop can reach
+# a Rails/Next server running here. Rails binds 127.0.0.1 only, so Tailscale routing alone
+# is not enough — `tailscale serve --tcp` bridges the tailnet interface to loopback.
+#   rserve tsdemo        rserve tsdemo --vite       rserve 3012
+#   rserve ls            rserve off
+alias rserve="~/code/dvddgn/dotfiles/bin/rserve.sh"
+
 # Dev services (start/stop/restart rails/sidekiq/vite in tmux)
 # srv m1              → restart all
 # srv m1 rails        → restart just rails

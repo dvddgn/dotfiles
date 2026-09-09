@@ -13,6 +13,7 @@
 #   rcs tab <session>        # a single tab for one session
 #   rcs ssh                  # a plain shell on the home Mac, no tmux
 #   rcs --dry-run iterm      # print what it would do and open nothing
+#   rcs --all iterm          # include the wsw-*/wt-* worktree slots too
 #   rcs --host <addr> ...    # target a different machine
 #
 # Requires: Tailscale running and signed in on THIS machine, and the home Mac up.
@@ -28,6 +29,7 @@ set -uo pipefail
 HOST="${RCS_HOST:-100.98.222.99}"
 USER_AT="${RCS_USER:-daviddeegan}"
 DRY_RUN=0
+INCLUDE_ALL=0
 
 die() { echo "Error: $*" >&2; exit 1; }
 
@@ -101,10 +103,23 @@ remote_sessions() {
   # Same exclusions as cs.sh's own layout, and for the same reasons: sess-HHMMSS strays
   # from a VS Code restart are not real work slots, and c1-c5/m1-m5 are on-demand rather
   # than standing tabs. Sorted, so shared prefixes (ops-*, prj-*, wt-*) cluster for free.
-  ssh_cmd "tmux list-sessions -F '#{session_name}' 2>/dev/null" \
-    | grep -Ev '^m1-[0-9]{6}$' \
-    | grep -Ev '^(c[1-5]|m[1-5])$' \
-    | sort
+  #
+  # Worktree slots (wsw-* and wt-*) are dropped too, which cs.sh does NOT do — the home
+  # Mac has the screen space for them and this laptop does not. On 2026-09-09 the home Mac
+  # had 28 sessions and 13 desktop tabs; the 10 wsw-* slots were the bulk of the gap. They
+  # are agent working slots you dip into, not standing tabs, which is the same argument
+  # cs.sh already makes for c1-c5/m1-m5. `--all` keeps them; `rcs tab <name>` opens one.
+  local out
+  out=$(ssh_cmd "tmux list-sessions -F '#{session_name}' 2>/dev/null" \
+        | grep -Ev '^m1-[0-9]{6}$' \
+        | grep -Ev '^(c[1-5]|m[1-5])$')
+  # An explicit branch rather than a command held in a variable: `$filter` unquoted
+  # relies on word-splitting to reassemble a command line, which is fragile and hides
+  # the pattern from the reader.
+  if [[ $INCLUDE_ALL -eq 0 ]]; then
+    out=$(printf '%s\n' "$out" | grep -Ev '^(wsw|wt)-')
+  fi
+  printf '%s\n' "$out" | grep -v '^$' | sort
 }
 
 osa() { [[ $DRY_RUN -eq 1 ]] && { echo "  [dry-run] osascript: ${1//$'\n'/ }" | cut -c1-150; return 0; }
@@ -198,6 +213,7 @@ cmd_iterm() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
+    --all)     INCLUDE_ALL=1; shift ;;
     --host)    HOST="${2:?--host needs an address}"; shift 2 ;;
     --user)    USER_AT="${2:?--user needs a name}"; shift 2 ;;
     -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;

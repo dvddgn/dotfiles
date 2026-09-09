@@ -33,7 +33,7 @@ INCLUDE_ALL=0
 
 die() { echo "Error: $*" >&2; exit 1; }
 
-# Every remote attach MUST carry these flags. `-f ignore-size` keeps this client out of
+# Every remote attach goes through tattach.sh, which chooses these flags per attach. `-f ignore-size` keeps this client out of
 # the window-size calculation, so a 116-col laptop does not reflow the home Mac's own
 # 115x110 iTerm2 tabs on the same session; `-f active-pane` gives it its own active pane
 # so moving around here does not drag the home cursor.
@@ -41,7 +41,12 @@ die() { echo "Error: $*" >&2; exit 1; }
 # NOT `pt <session>`, even though that is the same thing and is what you type by hand.
 # `ssh host 'cmd'` runs cmd as `$SHELL -c`, which is non-interactive, and zsh does not
 # source ~/.zshrc for those — so the pt function does not exist and the command fails.
-ATTACH_FLAGS='-f ignore-size,active-pane'
+# Absolute path, because this runs as a non-interactive remote command where nothing from
+# ~/.zshrc exists — the same reason `pt` cannot be used here. tattach.sh decides the sizing
+# flags per attach rather than applying them unconditionally: with nobody else attached,
+# ignore-size leaves tmux no client to size the window from, so a full-screen laptop gets a
+# stale 80x24 window with dead space around it. See that script's header.
+REMOTE_ATTACH="\$HOME/code/dvddgn/dotfiles/bin/tattach.sh"
 
 ssh_cmd() { ssh -o ConnectTimeout=8 "$USER_AT@$HOST" "$@"; }
 
@@ -52,7 +57,7 @@ ssh_cmd() { ssh -o ConnectTimeout=8 "$USER_AT@$HOST" "$@"; }
 # "Expected end of line but found identifier. (-2741)". Single quotes need no escaping in
 # either AppleScript or the zsh that ultimately runs the line.
 remote_attach_cmdline() {
-  printf "ssh -t %s@%s 'tmux attach -t %s %s'" "$USER_AT" "$HOST" "$1" "$ATTACH_FLAGS"
+  printf "ssh -t %s@%s '%s %s'" "$USER_AT" "$HOST" "$REMOTE_ATTACH" "$1"
 }
 
 # The GUI builds (Standalone cask and Mac App Store) do NOT put `tailscale` on the PATH —

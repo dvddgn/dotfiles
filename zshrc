@@ -174,17 +174,33 @@ cct() {
 #
 # Already attached and forgot? `tmux refresh-client -f ignore-size,active-pane`.
 pt() {
-  local name="$1"
-  if [[ -z "$name" ]]; then
-    tmux list-sessions -F '#{session_name}' 2>/dev/null \
-      || { echo "no tmux server running" >&2; return 1; }
-    return 0
-  fi
-  if ! tmux has-session -t "$name" 2>/dev/null; then
-    echo "no such tmux session: $name" >&2
+  # Delegates to bin/tattach.sh so that typing `pt` by hand and rcs's on-connect
+  # command make the SAME sizing decision. The flags are not unconditional: see the
+  # comment block in that script for why attaching alone must NOT use ignore-size.
+  "$HOME/code/dvddgn/dotfiles/bin/tattach.sh" "$@"
+}
+
+# Already attached and the window is stranded at a size smaller than this terminal?
+# (Symptom: content fills only the top-left of the window, dead space around it.) That
+# happens when the only client is an ignore-size one, so tmux has no client to size from.
+# `fit` resizes the CURRENT window to this client. It refuses when others are attached,
+# because growing the window there is exactly the reflow ignore-size exists to prevent.
+fit() {
+  [[ -n "${TMUX:-}" ]] || { echo "fit: not inside tmux" >&2; return 1; }
+  local sess win others cw ch rows
+  sess=$(tmux display -p '#{session_name}')
+  win=$(tmux display -p '#{session_name}:#{window_index}')
+  others=$(tmux list-clients -t "$sess" -F '#{client_flags}' | grep -cv 'ignore-size')
+  if [[ "${others:-0}" -gt 0 && "${1:-}" != "-f" ]]; then
+    echo "fit: $others other client(s) on '$sess' would be reflowed. Re-run 'fit -f' to do it anyway." >&2
     return 1
   fi
-  tmux attach-session -t "$name" -f ignore-size,active-pane
+  cw=$(tmux display -p '#{client_width}')
+  ch=$(tmux display -p '#{client_height}')
+  rows=$(tmux show-options -t "$sess" -v status 2>/dev/null); [[ "$rows" =~ ^[0-9]+$ ]] || rows=1
+  tmux resize-window -t "$win" -x "$cw" -y "$((ch - rows))" || return 1
+  tmux set-window-option -t "$win" -u window-size 2>/dev/null   # back to automatic
+  echo "fit: $win -> ${cw}x$((ch - rows))"
 }
 
 # Open VS Code workspace by session name

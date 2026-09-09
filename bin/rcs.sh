@@ -48,21 +48,44 @@ remote_attach_cmdline() {
   printf 'ssh -t %s@%s "tmux attach -t %s %s"' "$USER_AT" "$HOST" "$1" "$ATTACH_FLAGS"
 }
 
+# The GUI builds (Standalone cask and Mac App Store) do NOT put `tailscale` on the PATH —
+# they bundle the CLI inside the .app. Only the open-source `brew install tailscale`
+# formula links it into /opt/homebrew/bin. Since a client machine is exactly where the
+# GUI build is the sensible choice, checking `command -v tailscale` alone reports "not
+# installed" on a machine where Tailscale is plainly running. Resolve it properly, and
+# print nothing if it cannot be found — the CLI is only used for nicer diagnostics here,
+# not to make the connection.
+find_ts_cli() {
+  local c
+  for c in tailscale \
+           /Applications/Tailscale.app/Contents/MacOS/Tailscale \
+           /Applications/Tailscale.app/Contents/MacOS/tailscale \
+           /opt/homebrew/bin/tailscale \
+           /usr/local/bin/tailscale; do
+    if command -v "$c" >/dev/null 2>&1 || [[ -x "$c" ]]; then echo "$c"; return 0; fi
+  done
+  return 1
+}
+
 preflight() {
-  command -v tailscale >/dev/null 2>&1 \
-    || die "tailscale not installed on this machine. Install it and sign in to the same tailnet."
-  tailscale status >/dev/null 2>&1 \
-    || die "tailscale is installed but not running or not signed in. Run: tailscale up"
+  local TS
+  TS=$(find_ts_cli) || TS=""
+
+  if [[ -n "$TS" ]]; then
+    "$TS" status >/dev/null 2>&1 \
+      || die "Tailscale is installed but not running or not signed in.
+  GUI app: open Tailscale from the menu bar and connect.  CLI: run 'tailscale up'."
+  fi
   # Am I already ON the target? An SSH to your own tailnet address is refused (nothing
   # binds :22 locally; Tailscale SSH answers peer traffic inside tailscaled's netstack),
   # so without this check the failure surfaces as "cannot reach the home Mac, is it
   # awake?" — while you are sitting on the home Mac. That message sends you to look at
   # the wrong machine. Most common way in: running rcs inside an SSH session opened
   # FROM the portable Mac, where the shell is the home Mac's.
-  local self_ips
-  self_ips=$(tailscale status --json 2>/dev/null \
+  local self_ips=""
+  [[ -n "$TS" ]] && self_ips=$("$TS" status --json 2>/dev/null \
     | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["Self"]["TailscaleIPs"]))' 2>/dev/null)
-  if [[ " $self_ips " == *" $HOST "* ]]; then
+  if [[ -n "$self_ips" && " $self_ips " == *" $HOST "* ]]; then
     die "$HOST is THIS machine — rcs targets the home Mac from a different one.
   If you are in an SSH session on the home Mac, run 'exit' first, then rcs on the local machine.
   To open local tabs instead, use 'cs iterm'."
@@ -70,7 +93,8 @@ preflight() {
 
   ssh_cmd true >/dev/null 2>&1 \
     || die "cannot reach $USER_AT@$HOST over SSH.
-  Check: 'tailscale status' here lists the home Mac; the home Mac is awake; and it is not asleep on battery."
+  Check: Tailscale is connected on this machine and lists the home Mac; the home Mac is
+  awake (it does not sleep on AC, but does on battery); and you are not already ON it.${TS:+}"
 }
 
 remote_sessions() {

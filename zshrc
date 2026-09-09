@@ -227,6 +227,12 @@ alias wsw="~/code/dvddgn/wsw.sh"
 # Claude sessions for a directory, labelled: cs | cs -g email | cs r 3
 alias cs="~/code/dvddgn/cs.sh"
 
+# The same tab layout, but for the HOME Mac's tmux sessions reached over Tailscale SSH —
+# so the portable Mac gets the familiar Work/Personal window pair with one named tab per
+# session. `rcs` lists, `rcs iterm` builds the layout, `rcs tab <session>` opens one.
+# Harmless on the home Mac itself (it would just SSH to itself), it is for the other one.
+alias rcs="~/code/dvddgn/dotfiles/bin/rcs.sh"
+
 # Dev services (start/stop/restart rails/sidekiq/vite in tmux)
 # srv m1              → restart all
 # srv m1 rails        → restart just rails

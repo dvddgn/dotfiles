@@ -230,7 +230,8 @@ alias cs="~/code/dvddgn/cs.sh"
 # The same tab layout, but for the HOME Mac's tmux sessions reached over Tailscale SSH —
 # so the portable Mac gets the familiar Work/Personal window pair with one named tab per
 # session. `rcs` lists, `rcs iterm` builds the layout, `rcs tab <session>` opens one.
-# Harmless on the home Mac itself (it would just SSH to itself), it is for the other one.
+# On the home Mac itself it refuses with an explanation rather than trying to SSH to
+# itself — including when run inside an SSH session, where the shell IS the home Mac's.
 alias rcs="~/code/dvddgn/dotfiles/bin/rcs.sh"
 
 # Dev services (start/stop/restart rails/sidekiq/vite in tmux)

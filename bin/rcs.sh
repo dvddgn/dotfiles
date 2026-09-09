@@ -46,8 +46,13 @@ ATTACH_FLAGS='-f ignore-size,active-pane'
 ssh_cmd() { ssh -o ConnectTimeout=8 "$USER_AT@$HOST" "$@"; }
 
 # `-t` forces a pty, which tmux needs. Without it: "open terminal failed: not a terminal".
+# SINGLE quotes around the remote command, not double. This string is embedded inside an
+# AppleScript string literal (`write text "..."`), and an unescaped inner double quote ends
+# that literal early — AppleScript then hits the bare word `tmux` and fails with
+# "Expected end of line but found identifier. (-2741)". Single quotes need no escaping in
+# either AppleScript or the zsh that ultimately runs the line.
 remote_attach_cmdline() {
-  printf 'ssh -t %s@%s "tmux attach -t %s %s"' "$USER_AT" "$HOST" "$1" "$ATTACH_FLAGS"
+  printf "ssh -t %s@%s 'tmux attach -t %s %s'" "$USER_AT" "$HOST" "$1" "$ATTACH_FLAGS"
 }
 
 # The GUI builds (Standalone cask and Mac App Store) do NOT put `tailscale` on the PATH —

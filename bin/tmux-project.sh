@@ -18,7 +18,7 @@ CONTEXT_FILE="$STATUS_DIR/tmux-contexts.tsv"
 CONTEXT_LOCK="${CONTEXT_FILE}.lock"
 RESOLVER="${TMUX_PROJECT_RESOLVER:-$HOME/code/dvddgn/workspace-app/scripts/resolve-ref.js}"
 
-ROW_0='#[align=left bg=#1e3a5f fg=white] #S  #{W:#[bg=#1e3a5f fg=white] #I:#W ,#[bg=white fg=#1e3a5f bold] #I:#W }#[align=right bg=#1e3a5f fg=white nobold] %H:%M '
+ROW_0='#[align=left bg=#1e3a5f fg=white] #S  #{W:#[bg=#1e3a5f fg=white] #I:#W ,#[bg=white fg=#1e3a5f bold] #I:#W }#[align=right]#{?#{m:*ignore-size*,#{client_flags}},#[bg=#d97706 fg=black bold] REMOTE ,}#[bg=#1e3a5f fg=white nobold] %H:%M '
 ROW_1_URL='#[align=left,bg=#102a43,fg=#7dd3fc] #{@context_label_display}  #{=/#{?#{>:#{e|-:#{e|-:#{client_width},#{n:#{@context_url}}},15},3},#{e|-:#{e|-:#{client_width},#{n:#{@context_url}}},15},3}/…:#{@context_name}} #[align=right,bg=#102a43,fg=#7dd3fc] · #{@context_url} '
 ROW_1_NO_URL='#[align=left,bg=#102a43,fg=#7dd3fc] #{@context_label_display}  #{@context_name} '
 ROW_2='#[align=left,bg=#172f49,fg=#f7c873] WINDOW   #W  ·  #[fg=#d5e2ed]#{@window_purpose} #[align=right,fg=#9fb3c8] #{pane_current_path} '

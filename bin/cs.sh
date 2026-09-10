@@ -586,6 +586,25 @@ ensure_core_sessions() {
 }
 
 cmd_iterm_restore() {
+  # Refuse over SSH. Added 2026-09-10, when DD started working from the road.
+  # This builds ~18 iTerm tabs on THIS machine. Run from a laptop over SSH, they open
+  # on the home Mac's screen - invisible, and each one attaches a second client to a
+  # tmux session, which then fights the remote client over window size (the exact
+  # problem `pt`/`-f ignore-size` exists to solve). `rcs iterm` is the remote
+  # equivalent: same layout, built on the LAPTOP, each tab an SSH connection back here.
+  #
+  # A tmux pane created before the SSH login does not inherit SSH_CONNECTION, so this
+  # misses some remote invocations. That is a false negative - it never wrongly blocks
+  # a local run - and catching the common case is worth more than catching none.
+  if [[ -n "${SSH_CONNECTION:-}${SSH_TTY:-}" && -z "${CS_ITERM_LOCAL_ANYWAY:-}" ]]; then
+    echo "Error: 'cs iterm' builds iTerm windows on THIS machine, and you are over SSH." >&2
+    echo "       They would open on the home Mac's screen where you cannot see them, and" >&2
+    echo "       each tab would attach a second tmux client that shrinks your remote view." >&2
+    echo "       Use 'rcs iterm' on the laptop instead - same layout, built locally there." >&2
+    echo "       To override (you really are at the machine): CS_ITERM_LOCAL_ANYWAY=1 cs iterm" >&2
+    exit 1
+  fi
+
   ensure_iterm_profile
 
   # Worktree sessions need their full 7-window layout (claude/claude2/claude3/

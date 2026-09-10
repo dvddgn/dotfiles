@@ -9,10 +9,15 @@
 # step at a time later. None of these are optional extras: a slot exists to be
 # worked in by hand (nothing automated creates one), so it is not finished until
 # there is somewhere to work in it.
-# --no-ui skips all three, for a batch of slots or a session with no GUI.
+# --ui opens all three. It is OPT-IN: since 2026-09-10 the default is no GUI at all.
+# DD works from the road over SSH and VS Code Remote-SSH, where a VS Code window, a
+# Chrome window and an iTerm tab open on the home Mac's screen, which he cannot see -
+# and worse, the stray iTerm client attaches to the slot's tmux session and fights the
+# remote client over window size. Pass --ui when you are physically at the machine.
+# --no-ui is still accepted, and is now a no-op, so older docs and muscle memory keep working.
 #
 # Usage:
-#   wt new    <slug> [branch] [--project <ref>] [--claudes N] [--monitor N] [--no-rails] [--no-ui]
+#   wt new    <slug> [branch] [--project <ref>] [--claudes N] [--monitor N] [--no-rails] [--ui]
 #   wt agent  <slug> [window-name]
 #   wt project <slug> <project-ref>       # bind/change the Workspace project
 #   wt project <slug> --clear             # remove the project binding
@@ -559,14 +564,15 @@ open_browser_workspace() {
 }
 
 cmd_new() {
-  local slug="" branch="" project_ref="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=true monitor=""
+  local slug="" branch="" project_ref="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=false monitor=""
   while (($#)); do
     case "$1" in
       --claudes) claudes="${2:?--claudes needs a number}"; shift 2 ;;
       --project) project_ref="${2:?--project needs a Workspace project reference}"; shift 2 ;;
       --monitor) monitor="${2:?--monitor needs a display index}"; shift 2 ;;
       --no-rails) start_rails=false; shift ;;
-      --no-ui) open_ui=false; shift ;;
+      --ui) open_ui=true; shift ;;
+      --no-ui) open_ui=false; shift ;;   # no-op since 2026-09-10; kept so old docs still work
       -*) die "unknown flag $1" ;;
       *) if [[ -z "$slug" ]]; then slug=$1; elif [[ -z "$branch" ]]; then branch=$1; else die "unexpected argument $1"; fi; shift ;;
     esac
@@ -716,7 +722,7 @@ cmd_new() {
       browserline="  browser   see the note above — by hand: open $wt.overview.html"
     fi
   else
-    browserline="  browser   not opened (--no-ui) — by hand: open $wt.overview.html   (not written either)"
+    browserline="  browser   not opened (no --ui) — by hand: open $wt.overview.html   (not written either)"
   fi
 
   # The attach command goes last and unlabelled, on its own line, because it is

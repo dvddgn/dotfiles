@@ -7,7 +7,11 @@
 # and ten-plus live AIH slots depend on it behaving exactly as it does.
 #
 # Usage:
-#   wsw new     <slug> [branch] [--project <ref>] [--no-dev] [--no-ui]
+#   wsw new     <slug> [branch] [--project <ref>] [--no-dev] [--ui]
+#
+# --ui is OPT-IN since 2026-09-10, matching wt.sh: the default opens no GUI, because DD
+# works remotely over SSH and a window opened here lands on a screen he cannot see.
+# --no-ui is still accepted as a no-op.
 #   wsw rm      <slug> [--force]
 #   wsw ls
 #   wsw restore [slug]
@@ -223,12 +227,13 @@ close_iterm_tab() {
 
 # ---- new ----------------------------------------------------------------------
 cmd_new() {
-  local slug="" branch="" project_ref="" start_dev_server=true open_ui=true
+  local slug="" branch="" project_ref="" start_dev_server=true open_ui=false
   while (($#)); do
     case "$1" in
       --project) project_ref="${2:?--project needs a Workspace project reference}"; shift 2 ;;
       --no-dev) start_dev_server=false; shift ;;
-      --no-ui) open_ui=false; shift ;;
+      --ui) open_ui=true; shift ;;
+      --no-ui) open_ui=false; shift ;;   # no-op since 2026-09-10; kept so old docs still work
       -*) die "unknown flag $1" ;;
       *) if [[ -z "$slug" ]]; then slug=$1; elif [[ -z "$branch" ]]; then branch=$1; else die "unexpected argument $1"; fi; shift ;;
     esac
@@ -351,7 +356,7 @@ cmd_new() {
       uiline="  window    the iTerm2 tab needs a hand - see the note above"
     fi
   else
-    uiline="  window    not opened (--no-ui) - by hand: cs tab $session"
+    uiline="  window    not opened (no --ui) - by hand: cs tab $session"
   fi
 
   cat <<EOF

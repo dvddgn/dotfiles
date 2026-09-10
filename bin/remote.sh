@@ -18,6 +18,25 @@
 # Agents: end any turn that creates a slot or a session by running this and pasting the output.
 
 set -uo pipefail
+
+# This inspects THIS machine's tmux sessions, .port files and `tailscale serve` state, so it
+# only makes sense on the home Mac. dotfiles sync to both Macs, so without this guard running
+# it on the portable one lists the LAPTOP's sessions and prints a header naming the laptop's
+# own tailnet address as "the home Mac" - confidently wrong, and hard to spot.
+# The hardware UUID is the only identifier that cannot drift or be copied, which is the same
+# reasoning ~/.claude/machine.md uses. Override with REMOTE_SH_ANY_HOST=1.
+HOME_MAC_UUID="2971A3E8-CF7D-50DA-943B-7464CD9931D5"
+this_uuid=$(ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F'"' '/IOPlatformUUID/{print $4}')
+if [[ -z "${REMOTE_SH_ANY_HOST:-}" && -n "$this_uuid" && "$this_uuid" != "$HOME_MAC_UUID" ]]; then
+  echo "This is not the home Mac, and 'remote' reads the home Mac's sessions and slots." >&2
+  echo "SSH in first, then run it there:" >&2
+  echo "    ssh daviddeegan@100.98.222.99" >&2
+  echo "    remote ${1:-}" >&2
+  echo >&2
+  echo "(To inspect THIS machine anyway: REMOTE_SH_ANY_HOST=1 remote ${1:-})" >&2
+  exit 1
+fi
+
 CODE="$HOME/code/dvddgn"
 TS=/opt/homebrew/bin/tailscale
 [[ -x "$TS" ]] || TS=$(command -v tailscale) || TS=""

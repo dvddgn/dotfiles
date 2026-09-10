@@ -257,6 +257,15 @@ alias rcs="~/code/dvddgn/dotfiles/bin/rcs.sh"
 #   rserve ls            rserve off
 alias rserve="~/code/dvddgn/dotfiles/bin/rserve.sh"
 
+# remote — print the copy-paste commands for reaching something on this Mac from the laptop
+# or phone. Runs here; prints commands to run THERE. Added 2026-09-10: every capability
+# already existed (ssh, rcs, rserve, VS Code Remote-SSH, vnc) but nothing assembled them
+# into a handoff, so each one was reconstructed by hand and usually incompletely.
+#   remote               list connectable sessions and slots
+#   remote tsdemo        a worktree slot: app URL, VS Code workspace, its tmux session
+#   remote remote-aih    a tmux session: its windows, and two ways to attach
+alias remote="~/code/dvddgn/dotfiles/bin/remote.sh"
+
 # Dev services (start/stop/restart rails/sidekiq/vite in tmux)
 # srv m1              → restart all
 # srv m1 rails        → restart just rails

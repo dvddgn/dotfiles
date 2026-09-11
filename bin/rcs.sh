@@ -119,9 +119,10 @@ remote_sessions() {
   # Mac has the screen space for them and this laptop does not. On 2026-09-09 the home Mac
   # had 28 sessions and 13 desktop tabs; the 10 wsw-* slots were the bulk of the gap. They
   # are agent working slots you dip into, not standing tabs, which is the same argument
-  # cs.sh already makes for c1-c5/m1-m5. `--all` keeps them; `rcs tab <name>` opens one.
+  # cs.sh already makes for c1-c5/m1-m5. `--all` keeps them in the layout; naming one
+  # (`rcs wt-pr-915`) always works regardless, via remote_sessions_all below.
   local out
-  out=$(ssh_cmd "tmux list-sessions -F '#{session_name}' 2>/dev/null" \
+  out=$(remote_sessions_all \
         | grep -Ev '^m1-[0-9]{6}$' \
         | grep -Ev '^(c[1-5]|m[1-5])$')
   # An explicit branch rather than a command held in a variable: `$filter` unquoted
@@ -131,6 +132,18 @@ remote_sessions() {
     out=$(printf '%s\n' "$out" | grep -Ev '^(wsw|wt)-')
   fi
   printf '%s\n' "$out" | grep -v '^$' | sort
+}
+
+# Every session the home Mac actually has, unfiltered.
+#
+# The exclusions above shape the bulk `iterm` LAYOUT - they are about screen space on a
+# laptop, and have no business gating a session the user named out loud. Naming one is
+# the statement that you want it. Before 2026-09-11 `cmd_tab` validated against the
+# filtered list, so `rcs tab wt-pr-915` died with "no tmux session 'wt-pr-915'" unless
+# you also passed --all - while the comment above claimed "`rcs tab <name>` opens one".
+# DD hit exactly that and worked around it with `rcs --all tab wt-pr-915`.
+remote_sessions_all() {
+  ssh_cmd "tmux list-sessions -F '#{session_name}' 2>/dev/null" | grep -v '^$' | sort
 }
 
 # Never discard osascript's stderr. The first version of this did (`>/dev/null 2>&1`) and
@@ -197,7 +210,8 @@ cmd_tab() {
   [[ -n "$sess" ]] || die "usage: rcs tab <session>"
   require_iterm
   preflight
-  remote_sessions | grep -qx "$sess" || die "no tmux session '$sess' on the home Mac. Run 'rcs' to list them."
+  remote_sessions_all | grep -qx "$sess" \
+    || die "no tmux session '$sess' on the home Mac. Run 'rcs' to list them ('rcs --all' includes worktree slots)."
   osa 'tell application "iTerm2" to activate'
   local win_id
   if [[ $DRY_RUN -eq 1 ]]; then win_id="<current>"; else
@@ -317,7 +331,7 @@ case "${1:-list}" in
   # every other name in this setup (pt aih, remote aih) takes the session directly.
   # Only accept it when the home Mac really has that session, so a typo still gets the
   # usage message rather than a confusing failure deeper in.
-  *)        if remote_sessions | grep -qx "$1"; then cmd_tab "$1"
+  *)        if remote_sessions_all | grep -qx "$1"; then cmd_tab "$1"
             else die "unknown command or session '$1'.
   Try: rcs, rcs <session>, rcs iterm, rcs tab <session>, rcs ssh
   Run 'rcs' to list the sessions on the home Mac."

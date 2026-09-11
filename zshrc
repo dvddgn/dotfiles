@@ -340,3 +340,4 @@ alias tmux-project="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
 
 # Per-machine overrides (not tracked - PATH entries, machine-specific aliases)
 [ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
+unalias P 2>/dev/null

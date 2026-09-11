@@ -12,6 +12,7 @@
 #
 # Usage:
 #   remote                 # list everything connectable
+#   remote pick            # numbered list, choose by number or partial name
 #   remote <session>       # a tmux session (aih, remote-workspace, wt-tsdemo, ...)
 #   remote <slug>          # a worktree slot: its session, its app URL, its VS Code workspace
 #
@@ -130,9 +131,67 @@ slot_block() {
   echo "  wt done $slug                             # or 'wt rm $slug' to park it"
 }
 
+# Same picker as `rcs pick`. `remote` had exactly the friction rcs did - it lists ~50 names
+# and then you type one. Number or substring; ambiguous substrings list and stop.
+cmd_pick() {
+  local -a names=() labels=() slot_slugs=()
+  local f slug port d line skip s
+
+  # Slots first: they are the richer target, and their block already contains their tmux
+  # session, window list and both attach commands.
+  shopt -s nullglob
+  for f in "$CODE"/*.port; do
+    slug=$(basename "$f" .port); slug=${slug#aih-wt-}; slug=${slug#workspace-app-wt-}
+    port=$(cat "$f" 2>/dev/null); d=$(slot_dir_for "$slug") || continue
+    names+=("$slug"); slot_slugs+=("$slug")
+    if exposed "$port"; then labels+=("$slug  (slot, port $port, exposed)")
+    else labels+=("$slug  (slot, port $port, NOT exposed - rserve $slug)"); fi
+  done
+  shopt -u nullglob
+
+  # Then sessions - but NOT a wt-<slug>/wsw-<slug> whose slot is already listed. Listing
+  # both made "tsd" ambiguous between `tsdemo` and `wt-tsdemo`, which are the same thing to
+  # anyone picking from this list, and the slot entry is strictly more useful.
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    skip=0
+    for s in "${slot_slugs[@]}"; do
+      [[ "$line" == "wt-$s" || "$line" == "wsw-$s" ]] && { skip=1; break; }
+    done
+    [[ $skip -eq 1 ]] && continue
+    names+=("$line"); labels+=("$line  (tmux session)")
+  done < <(tmux ls -F '#{session_name}' 2>/dev/null | sort)
+  [[ ${#names[@]} -gt 0 ]] || { echo "nothing connectable."; exit 1; }
+
+  local i=1
+  for line in "${labels[@]}"; do printf '  %2d  %s\n' "$i" "$line"; i=$((i + 1)); done
+  echo
+  printf 'Which? (number, or part of a name): '
+  local ans; read -r ans
+  [[ -n "$ans" ]] || { echo "nothing chosen."; exit 0; }
+
+  local chosen=""
+  if [[ "$ans" =~ ^[0-9]+$ ]]; then
+    [[ "$ans" -ge 1 && "$ans" -le ${#names[@]} ]] || { echo "no such number '$ans' (1-${#names[@]})." >&2; exit 1; }
+    chosen=${names[$((ans - 1))]}
+  else
+    local -a hits=()
+    for line in "${names[@]}"; do [[ "$line" == *"$ans"* ]] && hits+=("$line"); done
+    case ${#hits[@]} in
+      0) echo "nothing matches '$ans'." >&2; exit 1 ;;
+      1) chosen=${hits[0]} ;;
+      *) echo "'$ans' matches ${#hits[@]}:"; printf '    %s\n' "${hits[@]}"
+         echo "be more specific." >&2; exit 1 ;;
+    esac
+  fi
+  echo
+  main "$chosen"
+}
+
 main() {
   local what="${1:-}"
   if [[ -z "$what" ]]; then list_all; exit 0; fi
+  if [[ "$what" == "pick" || "$what" == "-i" ]]; then cmd_pick; exit 0; fi
   # Resolve BEFORE printing the header, so a bad name gives an error and nothing else.
   local dir=""
   if ! dir=$(slot_dir_for "$what") && ! tmux has-session -t "$what" 2>/dev/null; then

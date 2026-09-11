@@ -265,6 +265,7 @@ alias rserve="~/code/dvddgn/dotfiles/bin/rserve.sh"
 #   remote tsdemo        a worktree slot: app URL, VS Code workspace, its tmux session
 #   remote remote-aih    a tmux session: its windows, and two ways to attach
 alias remote="~/code/dvddgn/dotfiles/bin/remote.sh"
+alias sync="~/code/dvddgn/dotfiles/bin/sync.sh"
 
 # Tab-completion of the home Mac's tmux session names for `rcs`.
 #
@@ -300,6 +301,11 @@ compdef _rcs rcs
 # ($TMUX set) do nothing at all - tmux owns the terminal there, and disabling would break
 # its own scroll and pane selection. Redundant disables are ignored by the terminal, so
 # doing this every prompt costs a few bytes and nothing else.
+# `source ~/.zshrc` re-parses functions with plugin aliases already live (which is how
+# omz_urlencode ends up piping to pygmentize) and duplicates PATH entries. `exec zsh`
+# replaces the shell with a clean startup, which is what "reload my config" actually means.
+alias reload='exec zsh'
+
 mouse-off() { printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l\e[?1015l'; }
 _dd_mouse_off() { [[ -z "$TMUX" && -t 1 ]] && mouse-off; }
 autoload -Uz add-zsh-hook

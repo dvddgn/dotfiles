@@ -17,7 +17,11 @@
 # --no-ui is still accepted, and is now a no-op, so older docs and muscle memory keep working.
 #
 # Usage:
-#   wt new    <slug> [branch] [--project <ref>] [--claudes N] [--monitor N] [--no-rails] [--ui]
+#   wt new    <slug> [branch] [--project <ref>] [--claudes N] [--monitor N] [--no-rails] [--ui] [--no-expose]
+#
+# `new` finishes by exposing the slot's Rails port to the tailnet (rserve) and printing the
+# connect block (remote <slug>), so the slot arrives usable rather than merely created.
+# --no-expose skips that; --no-rails implies it.
 #   wt agent  <slug> [window-name]
 #   wt project <slug> <project-ref>       # bind/change the Workspace project
 #   wt project <slug> --clear             # remove the project binding
@@ -564,7 +568,7 @@ open_browser_workspace() {
 }
 
 cmd_new() {
-  local slug="" branch="" project_ref="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=false monitor=""
+  local slug="" branch="" project_ref="" claudes=$CLAUDES_DEFAULT start_rails=true open_ui=false expose=true monitor=""
   while (($#)); do
     case "$1" in
       --claudes) claudes="${2:?--claudes needs a number}"; shift 2 ;;
@@ -572,6 +576,7 @@ cmd_new() {
       --monitor) monitor="${2:?--monitor needs a display index}"; shift 2 ;;
       --no-rails) start_rails=false; shift ;;
       --ui) open_ui=true; shift ;;
+      --no-expose) expose=false; shift ;;
       --no-ui) open_ui=false; shift ;;   # no-op since 2026-09-10; kept so old docs still work
       -*) die "unknown flag $1" ;;
       *) if [[ -z "$slug" ]]; then slug=$1; elif [[ -z "$branch" ]]; then branch=$1; else die "unexpected argument $1"; fi; shift ;;
@@ -742,6 +747,23 @@ $browserline
 Attach:
   tmux attach -t $session
 EOF
+
+  # Expose to the tailnet and print the connect block. Creating a USABLE slot was three
+  # commands (wt new / rserve / remote), and the last two were the ones an agent forgot, so
+  # DD got a slot name and no way in. Doing all three here means a slot cannot be handed over
+  # without its URL. --no-expose opts out; --no-rails implies it, since there is nothing to
+  # serve. Cleanup is not optional either - see cmd_rm/cmd_done, which now drop the rule.
+  if [[ "$expose" == true && "$start_rails" == true ]]; then
+    local port; port=$(cat "$wt.port" 2>/dev/null)
+    if [[ -n "$port" ]]; then
+      echo
+      "$BASE/dotfiles/bin/rserve.sh" "$slug" >/dev/null 2>&1 \
+        && echo "Exposed to the tailnet on port $port." \
+        || echo "Could not expose port $port - run 'rserve $slug' by hand."
+      echo
+      "$BASE/dotfiles/bin/remote.sh" "$slug" 2>/dev/null
+    fi
+  fi
 }
 
 # ---- rm -----------------------------------------------------------------------
@@ -817,6 +839,19 @@ cmd_rm() {
   [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" forget "$session" >/dev/null 2>&1 || true
 
   refresh_profiles
+  # Drop this slot's tailnet exposure BEFORE the port file goes, since that file is how the
+  # port is known. A `tailscale serve` rule outlives the slot it was made for: ports allocate
+  # from 3012 upward, so the NEXT slot handed this port would be published to the tailnet the
+  # moment its server started, with nobody having asked. Harmless in itself (tailnet-only),
+  # but it makes `rserve ls` useless as a picture of what is deliberately open - and now that
+  # `new` exposes automatically, cleaning up here is what keeps that honest.
+  # Per-port, never `rserve off`, which would drop every other slot's rule too.
+  if [[ -f "$wt.port" ]]; then
+    local _p; _p=$(cat "$wt.port" 2>/dev/null)
+    if [[ -n "$_p" ]] && command -v tailscale >/dev/null 2>&1; then
+      tailscale serve --tcp "$_p" off >/dev/null 2>&1 && echo "  tailnet exposure for port $_p removed"
+    fi
+  fi
   rm -f "$wt.port" && echo "  port file removed"
   rm -f "$wt.redisdb" && echo "  Redis allocation marker removed"
   # A brief/context file lives BESIDE the worktree so `git worktree remove`

@@ -75,6 +75,22 @@
 
 set -uo pipefail
 
+# This machine only. `wt` builds worktrees, branches, tmux sessions and servers on the box it
+# runs on - and dotfiles sync to both Macs, so on the laptop it would SUCCEED and quietly build
+# a parallel slot on the wrong machine: no loop fleet watching it, no agents reaching it, and it
+# dies when the lid closes. A silent success in the wrong place is worse than a failure.
+# Same UUID check and reasoning as remote.sh and ~/.claude/machine.md. WT_ANY_HOST=1 overrides.
+_wt_host_uuid=$(ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F'"' '/IOPlatformUUID/{print $4}')
+if [[ -z "${WT_ANY_HOST:-}" && -n "$_wt_host_uuid" \
+      && "$_wt_host_uuid" != "2971A3E8-CF7D-50DA-943B-7464CD9931D5" ]]; then
+  echo "Error: this is not the home Mac, and worktree slots live there." >&2
+  echo "       Work executes on the home Mac; this machine is a viewport." >&2
+  echo "       SSH in first:  ssh daviddeegan@100.98.222.99" >&2
+  echo "       Then:          $(basename "$0" .sh) $*" >&2
+  echo "       (Override, if you really do want a local slot: WT_ANY_HOST=1 ...)" >&2
+  exit 1
+fi
+
 BASE="$HOME/code/dvddgn"
 # The clone the worktrees hang off. Every slot's .git file points into
 # $PARENT/.git/worktrees/, so this clone is load-bearing: it must keep existing,
@@ -113,7 +129,10 @@ bind_parent_to_slot() {
 }
 
 usage() {
-  sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'
+  # Print the header comment block, stopping at the first non-comment line. A hardcoded
+  # range ('2,41p') silently truncated usage each time the header grew - which it did on
+  # 2026-09-10 and again on 2026-09-11, and nothing complained.
+  awk 'NR>1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
   exit "${1:-0}"
 }
 

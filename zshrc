@@ -365,4 +365,10 @@ alias tmux-project="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
 
 # Per-machine overrides (not tracked - PATH entries, machine-specific aliases)
 [ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
-unalias P 2>/dev/null
+# QUOTED on purpose. `unalias P` is itself expanded by the very global alias it is trying to
+# remove - common-aliases sets `alias -g P="2>&1| pygmentize -l pytb"`, and a global alias
+# substitutes anywhere on the line, so the command became
+#   unalias 2>&1| pygmentize -l pytb 2>/dev/null
+# i.e. unalias with NO argument: "/Users/daviddeegan/.zshrc:unalias:368: not enough arguments"
+# on every shell start. Quoting suppresses alias expansion; unalias still receives P.
+unalias "P" 2>/dev/null

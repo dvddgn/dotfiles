@@ -11,6 +11,7 @@
 #   rcs                      # list the home Mac's sessions (no tabs opened)
 #   rcs iterm                # two windows, one tab per session, named
 #   rcs tab <session>        # a single tab for one session
+#   rcs <session>            # same thing - a bare session name is accepted
 #   rcs ssh                  # a plain shell on the home Mac, no tmux
 #   rcs --dry-run iterm      # print what it would do and open nothing
 #   rcs --all iterm          # include the wsw-*/wt-* worktree slots too
@@ -207,7 +208,7 @@ cmd_tab() {
   open_tab "$win_id" "$sess"
   sleep 4   # a name set too early is clobbered when the shell reports its own title
   osa "tell application \"iTerm2\" to tell window id $win_id to tell current session to set name to \"$sess\""
-  echo "opened a tab for '$sess' on the home Mac."
+  echo "opened a tab here, attached to '$sess' on the home Mac."
 }
 
 cmd_iterm() {
@@ -288,5 +289,14 @@ case "${1:-list}" in
   iterm)    cmd_iterm ;;
   tab)      shift; cmd_tab "${1:-}" ;;
   ssh)      cmd_ssh ;;
-  *)        die "unknown command '$1'. Try: rcs, rcs iterm, rcs tab <session>, rcs ssh" ;;
+  # A bare session name means `tab <session>`. DD reached for `rcs aih` twice before
+  # reading the error, which is the signal that the sub-command was the unnatural part -
+  # every other name in this setup (pt aih, remote aih) takes the session directly.
+  # Only accept it when the home Mac really has that session, so a typo still gets the
+  # usage message rather than a confusing failure deeper in.
+  *)        if remote_sessions | grep -qx "$1"; then cmd_tab "$1"
+            else die "unknown command or session '$1'.
+  Try: rcs, rcs <session>, rcs iterm, rcs tab <session>, rcs ssh
+  Run 'rcs' to list the sessions on the home Mac."
+            fi ;;
 esac

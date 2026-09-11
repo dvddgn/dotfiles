@@ -140,7 +140,10 @@ remote_sessions() {
 # error -1743 and no dialog if the user has previously denied it.
 osa() {
   if [[ $DRY_RUN -eq 1 ]]; then
-    echo "  [dry-run] osascript: ${1//$'\n'/ }" | cut -c1-150
+    # Raw AppleScript, truncated, one line per tab: 30 lines that never name a single
+    # session, which is the only thing a dry run is for. cmd_iterm/cmd_tab print a real
+    # plan instead. RCS_DRY_RUN_VERBOSE=1 brings the script back for debugging osascript.
+    [[ -n "${RCS_DRY_RUN_VERBOSE:-}" ]] && echo "  [dry-run] osascript: ${1//$'\n'/ }" | cut -c1-150
     return 0
   fi
   osa_get "$1" >/dev/null
@@ -211,6 +214,10 @@ cmd_tab() {
   echo "opened a tab here, attached to '$sess' on the home Mac."
 }
 
+# Personal window vs Work window. Mirrors cs.sh's split (DD's own, 2026-08-30): claw plus
+# every ops-*/prj-* session, all of which live inside ~/.openclaw/workspace.
+is_personal() { [[ "$1" == "claw" || "$1" == ops-* || "$1" == prj-* ]]; }
+
 cmd_iterm() {
   require_iterm
   preflight
@@ -228,6 +235,22 @@ cmd_iterm() {
   [[ ${#sessions[@]} -gt 0 ]] || die "the home Mac reports no tmux sessions."
 
   osa 'tell application "iTerm2" to activate'
+  if [[ $DRY_RUN -eq 1 ]]; then
+    local -a plan_work=() plan_personal=()
+    for sess in "${sessions[@]}"; do
+      if is_personal "$sess"; then plan_personal+=("$sess"); else plan_work+=("$sess"); fi
+    done
+    echo "Would open 2 iTerm2 windows here, ${#sessions[@]} tabs, each SSH'd to a tmux session on $HOST:"
+    echo
+    echo "  Work (${#plan_work[@]} tabs)"
+    printf '    %s\n' "${plan_work[@]}"
+    echo
+    echo "  Personal (${#plan_personal[@]} tabs)"
+    printf '    %s\n' "${plan_personal[@]}"
+    echo
+    echo "  Nothing was opened. Drop --dry-run to do it, or 'rcs <session>' for just one."
+    return 0
+  fi
   if [[ $DRY_RUN -eq 1 ]]; then work_win="<work>"; personal_win="<personal>"; else
     work_win=$(osa_get 'tell application "iTerm2" to id of (create window with default profile)')
     personal_win=$(osa_get 'tell application "iTerm2" to id of (create window with default profile)')
@@ -241,7 +264,7 @@ cmd_iterm() {
   # one muscle memory already knows: claw and every ops-*/prj-* is Personal.
   local -a s2=() w2=() t2=()
   for sess in "${sessions[@]}"; do
-    if [[ "$sess" == "claw" || "$sess" == ops-* || "$sess" == prj-* ]]; then
+    if is_personal "$sess"; then
       win_id=$personal_win; personal_n=$((personal_n + 1)); t2+=("$personal_n")
     else
       win_id=$work_win; work_n=$((work_n + 1)); t2+=("$work_n")

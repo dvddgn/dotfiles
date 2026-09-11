@@ -266,6 +266,26 @@ alias rserve="~/code/dvddgn/dotfiles/bin/rserve.sh"
 #   remote remote-aih    a tmux session: its windows, and two ways to attach
 alias remote="~/code/dvddgn/dotfiles/bin/remote.sh"
 
+# Tab-completion of the home Mac's tmux session names for `rcs`.
+#
+# Reads ONLY the cache file rcs writes ($TMPDIR/rcs-sessions-<host>.txt) - never ssh.
+# ssh_cmd uses ConnectTimeout=8, and a TAB that can freeze the terminal for eight seconds
+# on hotel wifi is worse than no completion. Cost of the cache being stale: you complete a
+# name that has gone, and rcs says so. Populate or refresh it by running `rcs` once.
+_rcs() {
+  local cache="${TMPDIR:-/tmp}/rcs-sessions-${RCS_HOST:-100.98.222.99}.txt"
+  local -a subcmds sessions
+  subcmds=(iterm tab ssh pick)
+  [[ -r "$cache" ]] && sessions=("${(@f)$(< "$cache")}")
+  if (( CURRENT == 2 )); then
+    compadd -a subcmds
+    (( ${#sessions} )) && compadd -a sessions
+  elif [[ ${words[2]} == tab ]] && (( CURRENT == 3 )); then
+    (( ${#sessions} )) && compadd -a sessions
+  fi
+}
+compdef _rcs rcs
+
 # Dev services (start/stop/restart rails/sidekiq/vite in tmux)
 # srv m1              → restart all
 # srv m1 rails        → restart just rails

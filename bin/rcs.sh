@@ -12,6 +12,8 @@
 #   rcs iterm                # two windows, one tab per session, named
 #   rcs tab <session>        # a single tab for one session
 #   rcs <session>            # same thing - a bare session name is accepted
+#   rcs pick                 # numbered list, choose by number or partial name
+#                            # (also: rcs <TAB> completes session names from cache)
 #   rcs ssh                  # a plain shell on the home Mac, no tmux
 #   rcs --dry-run iterm      # print what it would do and open nothing
 #   rcs --all iterm          # include the wsw-*/wt-* worktree slots too
@@ -30,6 +32,9 @@ set -uo pipefail
 HOST="${RCS_HOST:-100.98.222.99}"
 USER_AT="${RCS_USER:-daviddeegan}"
 DRY_RUN=0
+# Shell completion reads this; rcs refreshes it on any successful listing. Keyed by host so
+# --host does not poison the default one.
+SESSION_CACHE="${TMPDIR:-/tmp}/rcs-sessions-${RCS_HOST:-100.98.222.99}.txt"
 INCLUDE_ALL=0
 
 die() { echo "Error: $*" >&2; exit 1; }
@@ -143,7 +148,14 @@ remote_sessions() {
 # you also passed --all - while the comment above claimed "`rcs tab <name>` opens one".
 # DD hit exactly that and worked around it with `rcs --all tab wt-pr-915`.
 remote_sessions_all() {
-  ssh_cmd "tmux list-sessions -F '#{session_name}' 2>/dev/null" | grep -v '^$' | sort
+  local out
+  out=$(ssh_cmd "tmux list-sessions -F '#{session_name}' 2>/dev/null" | grep -v '^$' | sort)
+  # Cache it for shell completion. Completion must NEVER call ssh: ConnectTimeout is 8s,
+  # and a TAB press that can hang the terminal for eight seconds on a bad link is worse
+  # than no completion at all. `_rcs` in zshrc reads this file and nothing else, so the
+  # worst case is completing a name that has since gone - and rcs then says so.
+  [[ -n "$out" ]] && printf '%s\n' "$out" > "$SESSION_CACHE" 2>/dev/null
+  printf '%s\n' "$out"
 }
 
 # Never discard osascript's stderr. The first version of this did (`>/dev/null 2>&1`) and
@@ -226,6 +238,40 @@ cmd_tab() {
   sleep 4   # a name set too early is clobbered when the shell reports its own title
   osa "tell application \"iTerm2\" to tell window id $win_id to tell current session to set name to \"$sess\""
   echo "opened a tab here, attached to '$sess' on the home Mac."
+}
+
+# Interactive pick, for when you know the session by sight rather than by name. No fzf on
+# these machines, so a numbered list plus a prompt that accepts EITHER an index or a
+# substring - typing "tsd" is faster than counting to 34, and over a 100ms relay a menu
+# beats round-tripping a completion.
+cmd_pick() {
+  local -a sessions=()
+  local line
+  while IFS= read -r line; do [[ -n "$line" ]] && sessions+=("$line"); done < <(remote_sessions_all)
+  [[ ${#sessions[@]} -gt 0 ]] || die "the home Mac reports no tmux sessions."
+
+  local i=1
+  for line in "${sessions[@]}"; do printf '  %2d  %s\n' "$i" "$line"; i=$((i + 1)); done
+  echo
+  printf 'Open which? (number, or part of a name): '
+  local ans; read -r ans
+  [[ -n "$ans" ]] || { echo "nothing chosen."; return 0; }
+
+  local chosen=""
+  if [[ "$ans" =~ ^[0-9]+$ ]]; then
+    [[ "$ans" -ge 1 && "$ans" -le ${#sessions[@]} ]] || die "no such number '$ans' (1-${#sessions[@]})."
+    chosen=${sessions[$((ans - 1))]}
+  else
+    local -a hits=()
+    for line in "${sessions[@]}"; do [[ "$line" == *"$ans"* ]] && hits+=("$line"); done
+    case ${#hits[@]} in
+      0) die "nothing matches '$ans'." ;;
+      1) chosen=${hits[0]} ;;
+      *) echo "'$ans' matches ${#hits[@]}:"; printf '    %s\n' "${hits[@]}"
+         die "be more specific." ;;
+    esac
+  fi
+  cmd_tab "$chosen"
 }
 
 # Personal window vs Work window. Mirrors cs.sh's split (DD's own, 2026-08-30): claw plus
@@ -326,6 +372,7 @@ case "${1:-list}" in
   iterm)    cmd_iterm ;;
   tab)      shift; cmd_tab "${1:-}" ;;
   ssh)      cmd_ssh ;;
+  pick|-i)  cmd_pick ;;
   # A bare session name means `tab <session>`. DD reached for `rcs aih` twice before
   # reading the error, which is the signal that the sub-command was the unnatural part -
   # every other name in this setup (pt aih, remote aih) takes the session directly.
@@ -333,7 +380,7 @@ case "${1:-list}" in
   # usage message rather than a confusing failure deeper in.
   *)        if remote_sessions_all | grep -qx "$1"; then cmd_tab "$1"
             else die "unknown command or session '$1'.
-  Try: rcs, rcs <session>, rcs iterm, rcs tab <session>, rcs ssh
+  Try: rcs, rcs <session>, rcs pick, rcs iterm, rcs tab <session>, rcs ssh
   Run 'rcs' to list the sessions on the home Mac."
             fi ;;
 esac

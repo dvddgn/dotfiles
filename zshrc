@@ -286,6 +286,25 @@ _rcs() {
 }
 compdef _rcs rcs
 
+# tmux's `set -g mouse on` tells the TERMINAL to report mouse events. On a clean detach
+# (Ctrl-a d) tmux turns that back off. On an abrupt one - a dropped SSH link, a killed
+# session, a window whose shell exited - the disable never arrives, and every click after
+# that types raw SGR reports into the shell:
+#
+#   64;49;27M65;49;43M65;49;43M65;49;43M...
+#
+# Harmless, unreadable, and otherwise only fixable by remembering `reset`. It bit DD on
+# 2026-09-11 after a tmux attach over Tailscale SSH detached unexpectedly.
+#
+# So: whenever a prompt is drawn OUTSIDE tmux, assert mouse reporting off. Inside tmux
+# ($TMUX set) do nothing at all - tmux owns the terminal there, and disabling would break
+# its own scroll and pane selection. Redundant disables are ignored by the terminal, so
+# doing this every prompt costs a few bytes and nothing else.
+mouse-off() { printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l\e[?1015l'; }
+_dd_mouse_off() { [[ -z "$TMUX" && -t 1 ]] && mouse-off; }
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd _dd_mouse_off
+
 # Dev services (start/stop/restart rails/sidekiq/vite in tmux)
 # srv m1              → restart all
 # srv m1 rails        → restart just rails

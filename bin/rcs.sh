@@ -378,8 +378,25 @@ case "${1:-list}" in
   # every other name in this setup (pt aih, remote aih) takes the session directly.
   # Only accept it when the home Mac really has that session, so a typo still gets the
   # usage message rather than a confusing failure deeper in.
-  *)        if remote_sessions_all | grep -qx "$1"; then cmd_tab "$1"
-            else die "unknown command or session '$1'.
+  #
+  # preflight FIRST, and an empty list is NOT "no such session" (2026-09-16).
+  # This branch used to call remote_sessions_all directly, skipping the preflight that
+  # cmd_tab does. So when the ssh could not run at all - Tailscale down, home Mac asleep,
+  # or (the common one) rcs typed INSIDE an ssh session where the shell is already the
+  # home Mac's - the list came back empty, the grep failed, and the user was told
+  # "unknown command or session 'agent-actions-cost'". That blames the name, which is
+  # the one thing that was not wrong; DD hit it on a live session whose name was exact.
+  # Same class as the tmux "server exited unexpectedly" and lsof-returns-zero traps:
+  # an instrument failing silently and being read as a finding about the thing measured.
+  *)        preflight
+            _rcs_sessions=$(remote_sessions_all)
+            if [[ -z "$_rcs_sessions" ]]; then
+              die "could not read the session list from the home Mac ($HOST).
+  The name '$1' was never checked, so this says nothing about whether that session exists.
+  Check: 'tailscale status' here, and whether the home Mac is awake.
+  Then 'rcs' on its own to list sessions."
+            elif grep -qx "$1" <<<"$_rcs_sessions"; then cmd_tab "$1"
+            else die "no tmux session '$1' on the home Mac.
   Try: rcs, rcs <session>, rcs pick, rcs iterm, rcs tab <session>, rcs ssh
   Run 'rcs' to list the sessions on the home Mac."
             fi ;;

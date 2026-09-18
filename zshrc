@@ -114,10 +114,16 @@ elif [[ -n "$WSL_DISTRO_NAME" ]]; then
     alias cursor="/mnt/c/Users/david/AppData/Local/Programs/cursor/resources/app/bin/code"
 fi
 
-# Claude aliases
+# Agent CLIs — one per AI Builder lane. Keep this list and the `agent_lanes` table in
+# step: assignee `Claude` runs `claude`, `Codex` runs `codex`, `Cursor` runs
+# `cursor-agent`, `Grok` runs `grok`. Canonical reference is the `ai-builder` skill,
+# "The four lanes". Each alias is the permissive form, for asking an agent for help
+# without approval prompts.
 alias cc="claude --dangerously-skip-permissions"
 alias ccc="claude --dangerously-skip-permissions --continue"
 alias cx="codex --dangerously-bypass-approvals-and-sandbox"
+alias cu="cursor-agent --force"                     # Cursor ("Run Everything")
+alias gk="grok --permission-mode bypassPermissions" # Grok Build
 
 # Start tmux sessions + open VS Code (per repo)
 # up m1                → start m1 session + open VS Code

@@ -219,11 +219,33 @@ cmd_ssh() { preflight; exec ssh -t "$USER_AT@$HOST"; }
 
 cmd_tab() {
   local sess="$1"
+  local prevalidated="${2:-}"
   [[ -n "$sess" ]] || die "usage: rcs tab <session>"
   require_iterm
   preflight
-  remote_sessions_all | grep -qx "$sess" \
-    || die "no tmux session '$sess' on the home Mac. Run 'rcs' to list them ('rcs --all' includes worktree slots)."
+  # An EMPTY list is "could not read", not "no such session" (2026-09-19). This used to
+  # be `remote_sessions_all | grep -qx "$sess" || die "no tmux session '$sess'"`, so a
+  # transient ssh failure — a tailnet link still waking up in a fresh terminal — printed
+  # a confident lie about a session that was alive and correctly named. Same fault the
+  # bare-name dispatcher had (fixed 2026-09-16); this branch was missed.
+  #
+  # `prevalidated` exists because `rcs pick` already fetched and displayed the list, then
+  # handed the chosen name straight back here for a SECOND live fetch over the same link.
+  # Re-validating a name that came out of the list you just printed buys nothing and adds
+  # a round-trip that can fail on its own. DD hit exactly that picking #6 from a menu that
+  # had just listed it.
+  if [[ "$prevalidated" != "--prevalidated" ]]; then
+    local _list
+    _list=$(remote_sessions_all)
+    if [[ -z "$_list" ]]; then
+      die "could not read the session list from the home Mac ($HOST).
+  '$sess' was never checked, so this says nothing about whether it exists.
+  Usually a tailnet link still coming up in a fresh terminal — try again in a moment.
+  Check: 'tailscale status' here, and that the home Mac is awake."
+    fi
+    grep -qx "$sess" <<<"$_list" \
+      || die "no tmux session '$sess' on the home Mac. Run 'rcs' to list them ('rcs --all' includes worktree slots)."
+  fi
   osa 'tell application "iTerm2" to activate'
   local win_id
   if [[ $DRY_RUN -eq 1 ]]; then win_id="<current>"; else
@@ -271,7 +293,9 @@ cmd_pick() {
          die "be more specific." ;;
     esac
   fi
-  cmd_tab "$chosen"
+  # The name came out of the list we just fetched and printed — do not spend a second
+  # round-trip re-proving it exists. See the comment in cmd_tab.
+  cmd_tab "$chosen" --prevalidated
 }
 
 # Personal window vs Work window. Mirrors cs.sh's split (DD's own, 2026-08-30): claw plus

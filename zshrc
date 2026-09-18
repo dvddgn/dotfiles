@@ -372,3 +372,9 @@ alias tmux-project="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
 # i.e. unalias with NO argument: "/Users/daviddeegan/.zshrc:unalias:368: not enough arguments"
 # on every shell start. Quoting suppresses alias expansion; unalias still receives P.
 unalias "P" 2>/dev/null
+
+# >>> grok installer >>>
+export PATH="$HOME/.grok/bin:$PATH"
+fpath=(~/.grok/completions/zsh $fpath)
+autoload -Uz compinit && compinit -C
+# <<< grok installer <<<

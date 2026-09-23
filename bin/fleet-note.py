@@ -129,43 +129,39 @@ def build():
     for s in sessions:
         groups.setdefault(classify(s), []).append(s)
 
-    # ---- agents: one heading each, with their recap ----
+    # ---- agents: one table row each. A grid scans faster than headings ----
+    def cell(text):
+        # Pipe tables split on "|", so a literal one in a recap would break the row.
+        return (text or "").replace("|", "/").strip()
+
     agents = sorted(groups.get("agent", []))
     if agents:
         out.append("## Agents (%d)" % len(agents))
-        for s in agents:
-            win = sessions[s][0]
-            model, pct, recap = pane_facts("%s:%s" % (s, win["idx"]))
-            head = s
-            bits = [b for b in (model, pct and pct + "%") if b]
-            if bits:
-                head += " - " + " · ".join(bits)
-            out.append("### " + head)
-            for line in recap or ["_no recap set_"]:
-                out.append("- " + line)
-            named = names.get(s)
-            tail = "`%s`" % win["path"].replace(os.path.expanduser("~"), "~")
-            if named and named != s.replace("agent-", ""):
-                tail += " · session `%s`" % named
-            out.append("- " + tail)
+        out.append("| Session | Model | Ctx | What it is doing |")
+        out.append("|---|---|---|---|")
+        for s_ in agents:
+            win = sessions[s_][0]
+            model, pct, recap = pane_facts("%s:%s" % (s_, win["idx"]))
+            doing = " · ".join(recap) if recap else "_no recap set_"
+            out.append("| `%s` | %s | %s | %s |"
+                       % (s_, cell(model) or "-", pct and pct + "%" or "-", cell(doing)))
 
     # ---- worktree slots ----
     wts = sorted(groups.get("worktree", []))
     if wts:
         out.append("## Worktree slots (%d)" % len(wts))
-        for s in wts:
-            wins = sessions[s]
-            model, pct, recap = pane_facts("%s:%s" % (s, wins[0]["idx"]))
+        out.append("| Slot | Win | Model | Services | What it is doing |")
+        out.append("|---|---|---|---|---|")
+        for s_ in wts:
+            wins = sessions[s_]
+            model, pct, recap = pane_facts("%s:%s" % (s_, wins[0]["idx"]))
             svc = [w["window"] for w in wins if w["cmd"] in ("ruby", "node")]
-            head = "%s - %d windows" % (s, len(wins))
-            if model:
-                head += " · %s%s" % (model, pct and " " + pct + "%" or "")
-            out.append("### " + head)
-            if names.get(s):
-                out.append("- session `%s`" % names[s])
-            out.append("- up: %s" % (", ".join(svc) if svc else "no services running"))
-            for line in recap[:4]:
-                out.append("- " + line)
+            doing = " · ".join(recap[:4]) if recap else "_no recap set_"
+            out.append("| `%s` | %d | %s | %s | %s |"
+                       % (s_, len(wins),
+                          cell(model) and "%s %s%%" % (cell(model), pct or "?") or "-",
+                          ", ".join(svc) if svc else "none up",
+                          cell(doing)))
 
     # ---- everything else, one line each ----
     for key, title in (("repo", "Repo environments"),

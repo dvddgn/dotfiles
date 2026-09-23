@@ -163,7 +163,7 @@ def build():
                           ", ".join(svc) if svc else "none up",
                           cell(doing)))
 
-    # ---- everything else, one line each ----
+    # ---- repo envs, standing personal, orchestrator: same table shape ----
     for key, title in (("repo", "Repo environments"),
                        ("standing", "Standing personal"),
                        ("orchestrator", "Orchestrator")):
@@ -171,15 +171,25 @@ def build():
         if not members:
             continue
         out.append("## %s (%d)" % (title, len(members)))
-        for s in members:
-            wins = sessions[s]
-            # Window names in these sessions are often the agent's version string
-            # ("2.1.263") or "[tmux]", which tells DD nothing. Report liveness instead.
+        out.append("| Session | Win | Model | What it is doing |")
+        out.append("|---|---|---|---|")
+        for s_ in members:
+            wins = sessions[s_]
+            # Window names here are often the agent's version string ("2.1.263")
+            # or "[tmux]", which says nothing - so report the model and recap
+            # from the pane footer instead, same as the agents table.
+            model, pct, recap = pane_facts("%s:%s" % (s_, wins[0]["idx"]))
             running = sum(1 for w in wins if AGENT_CMD.match(w["cmd"]))
-            state = ("agent running" if running == 1
-                     else "%d agents" % running if running else "idle")
-            out.append("- `%s` - %d window%s · %s"
-                       % (s, len(wins), "" if len(wins) == 1 else "s", state))
+            if recap:
+                doing = " · ".join(recap)
+            elif key == "orchestrator":
+                doing = ", ".join(w["window"] for w in wins)
+            else:
+                doing = ("%d agents running" % running if running > 1
+                         else "agent running" if running else "idle")
+            model_cell = cell(model) and "%s %s%%" % (cell(model), pct or "?") or "-"
+            out.append("| `%s` | %d | %s | %s |"
+                       % (s_, len(wins), model_cell, cell(doing)))
 
     out.append("---")
     out.append("_Open one from whichever Mac you are on: `rcs tab <session>`, "

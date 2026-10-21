@@ -420,6 +420,14 @@ refresh_profiles() {
   "$CS" snapshot >/dev/null 2>&1 && echo "  terminal profiles refreshed"
 }
 
+# osascript with a time limit. A UI-scripting call can wait forever on a
+# permission or dialog nobody can see (DD drives this Mac over SSH), which hangs
+# the whole teardown. macOS has no `timeout`, so perl's alarm does it: SIGALRM
+# ends osascript after OSA_TIMEOUT seconds and the step counts as not done.
+osa_bounded() {
+  perl -e 'alarm shift; exec @ARGV' "${OSA_TIMEOUT:-15}" osascript "$@"
+}
+
 # Killing a tmux session does NOT close whatever iTerm2 tab was attached to it -
 # it leaves a dead plain shell behind for DD to notice and ask about later (see
 # the iterm skill's "Known fragility"). $1 is the tty captured via
@@ -430,7 +438,7 @@ refresh_profiles() {
 close_iterm_tab() {
   local tty=$1
   [[ -n "$tty" ]] || return 0
-  osascript -e "
+  osa_bounded -e "
   tell application \"iTerm2\"
     repeat with w in windows
       repeat with t in tabs of w
@@ -458,7 +466,7 @@ close_iterm_tab() {
 # touch. Silent no-op if Code is not running or the window is not found.
 close_vscode_window() {
   local slug=$1
-  osascript <<OSA 2>/dev/null | grep -q closed
+  osa_bounded <<OSA 2>/dev/null | grep -q closed
 tell application "System Events"
   if exists (first process whose name is "Code") then
     tell process "Code"
@@ -849,11 +857,13 @@ cmd_rm() {
     sleep 1
     tmux kill-session -t "$session" && echo "  tmux session killed"
     close_iterm_tab "$tty" && echo "  iTerm2 tab closed"
+    # Only with a live session. A slot with no session is a parked one, which
+    # almost never has a window open - and driving System Events for it hung
+    # `wt done` indefinitely (2026-10-20, cash-reserve-maintain). A window that
+    # does survive is left open, which keeps any unsaved buffer rather than
+    # losing it.
+    close_vscode_window "$slug" && echo "  VS Code window closed"
   fi
-
-  # Not nested in the block above - the window's lifetime is not tied to the
-  # tmux session's, so this runs even if the session was already gone.
-  close_vscode_window "$slug" && echo "  VS Code window closed"
 
   [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" forget "$session" >/dev/null 2>&1 || true
 

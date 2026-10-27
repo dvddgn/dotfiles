@@ -30,7 +30,7 @@ pid=$!
 waited=0
 while kill -0 "$pid" 2>/dev/null; do
   if [ "$waited" -ge "$limit" ]; then
-    kill "$pid" 2>/dev/null
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
     echo "NO ANSWER after ${limit}s - a permission prompt is probably waiting on the home Mac's screen."
     echo "  Be at the screen (or Screen Sharing), run 'reminders-check 60', click Allow."
     echo "  No prompt visible? System Settings > Privacy & Security > Automation: allow Reminders for tmux/osascript."

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# reminders-check — can this shell talk to Apple Reminders? Answers in seconds
+# instead of hanging.
+#
+#   reminders-check            check, wait up to 20s
+#   reminders-check 60         wait up to 60s (time to click Allow on the screen)
+#
+# Exit codes: 0 access OK · 1 denied in System Settings · 2 no answer (a macOS
+# permission prompt is almost certainly waiting on the home Mac's screen).
+#
+# Why this exists: the first osascript call to Reminders from a process with no
+# Automation permission shows a one-time macOS prompt. From an agent pane - the
+# Agent-tab worker, or any session on the tmux server, which was started from a
+# window that has since closed - that prompt appears on the home Mac's display
+# and the call waits on it forever, with no output. It reads as a slow command.
+# The grant belongs to the tmux server, so one Allow covers every agent on it
+# until the server restarts (usually a reboot). Run this FROM the agent (or a
+# tmux pane), not from a fresh iTerm tab: a grant made there goes to iTerm and
+# does not help the agents.
+
+set -uo pipefail
+
+limit="${1:-20}"
+out="$(mktemp -t reminders-check)"
+trap 'rm -f "$out"' EXIT
+
+osascript -e 'tell application "Reminders" to get name of every list' >"$out" 2>&1 &
+pid=$!
+
+waited=0
+while kill -0 "$pid" 2>/dev/null; do
+  if [ "$waited" -ge "$limit" ]; then
+    kill "$pid" 2>/dev/null
+    echo "NO ANSWER after ${limit}s - a permission prompt is probably waiting on the home Mac's screen."
+    echo "  Be at the screen (or Screen Sharing), run 'reminders-check 60', click Allow."
+    echo "  No prompt visible? System Settings > Privacy & Security > Automation: allow Reminders for tmux/osascript."
+    [ -n "${TMUX:-}" ] && echo "  tmux server pid: $(tmux display-message -p '#{pid}' 2>/dev/null)"
+    exit 2
+  fi
+  sleep 1
+  waited=$((waited + 1))
+done
+wait "$pid"
+rc=$?
+
+if [ "$rc" -eq 0 ]; then
+  echo "OK - Reminders access works. Lists: $(cat "$out")"
+  exit 0
+fi
+
+if grep -q -e '-1743' -e 'Not authori' "$out"; then
+  echo "DENIED - Automation permission was refused for this process."
+  echo "  System Settings > Privacy & Security > Automation: switch Reminders on for tmux/osascript, then re-run."
+  exit 1
+fi
+
+echo "ERROR (osascript exit $rc): $(cat "$out")"
+exit 1

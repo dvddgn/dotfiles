@@ -26,7 +26,7 @@ SESSIONS_TXT = os.path.join(STATUS_DIR, "sessions.txt")
 WINDOWS_TXT = os.path.join(STATUS_DIR, "windows.txt")
 
 INFRA_WINDOW_NAMES = {"shell", "rails", "sidekiq", "vite", "cx1", "css", "health"}
-CORE_SESSIONS = {"aih", "c1", "c2", "c3", "c4", "c5", "m1", "m1-notes",
+CORE_SESSIONS = {"aih", "m1", "m1-notes",
                   "m2", "m3", "m4", "m5", "ws", "claw", "hre"}
 
 # A live Claude session name in sessions.txt is a real name if it doesn't look like

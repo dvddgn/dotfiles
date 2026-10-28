@@ -214,7 +214,6 @@ vs() {
   local base="$HOME/code/dvddgn"
   case "$1" in
     aih)  code "$base/advice-innovation-hub/aih.code-workspace" ;;
-    c[1-5]) code "$base/advice-innovation-hub-clone-${1#c}/${1}.code-workspace" ;;
     m[1-5]) code "$base/advice-innovation-hub-${1}/${1}.code-workspace" ;;
     wt)   code "$base/aih-worktrees.code-workspace" ;;
     ws)   code "$base/workspace-app/ws.code-workspace" ;;
@@ -232,7 +231,7 @@ vs() {
         *) echo "Multiple *.code-workspace files here, pick one: ${found[*]}" ;;
       esac
       ;;
-    *)    echo "Usage: vs <aih|c1-c5|m1-m5|wt|ws|hre|claw|.>" ;;
+    *)    echo "Usage: vs <aih|m1-m5|wt|ws|hre|claw|.>" ;;
   esac
 }
 

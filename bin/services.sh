@@ -6,7 +6,7 @@
 # stopped first (shared Supabase DB + shared vite port make concurrent runs
 # messy). Pass --keep-others to skip this. Stop never touches other sessions.
 
-STATIC_SESSIONS=(aih c1 c2 c3 c4 c5 m1 m2 m3 m4 m5)
+STATIC_SESSIONS=(aih m1 m2 m3 m4 m5)
 # Worktree sessions (wt-<slug>) are created on demand, so discover them from tmux
 # rather than hardcoding. Without this, a server left running in a worktree would
 # survive the stop sweep and keep holding sidekiq's queue or vite's port.
@@ -42,7 +42,6 @@ AIH_BASE="$HOME/code/dvddgn"
 session_dir() {
   case "$1" in
     aih)    echo "$HOME/code/dvddgn/advice-innovation-hub" ;;
-    c[1-5]) echo "$HOME/code/dvddgn/advice-innovation-hub-clone-${1#c}" ;;
     m[1-5]) echo "$HOME/code/dvddgn/advice-innovation-hub-${1}" ;;
     hre)    echo "$HOME/code/dvddgn/horizons-real-estate" ;;
     wt-*)   echo "$HOME/code/dvddgn/aih-wt-${1#wt-}" ;;
@@ -106,11 +105,6 @@ fi
 # Determine port based on session
 case "$SESSION" in
   aih) PORT=3000 ;;
-  c1)  PORT=3001 ;;
-  c2)  PORT=3002 ;;
-  c3)  PORT=3003 ;;
-  c4)  PORT=3004 ;;
-  c5)  PORT=3005 ;;
   m1)  PORT=3006 ;;
   m2)  PORT=3007 ;;
   m3)  PORT=3008 ;;

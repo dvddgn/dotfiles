@@ -117,19 +117,19 @@ preflight() {
 
 remote_sessions() {
   # Same exclusions as cs.sh's own layout, and for the same reasons: sess-HHMMSS strays
-  # from a VS Code restart are not real work slots, and c1-c5/m1-m5 are on-demand rather
+  # from a VS Code restart are not real work slots, and m1-m5 are on-demand rather
   # than standing tabs. Sorted, so shared prefixes (ops-*, prj-*, wt-*) cluster for free.
   #
   # Worktree slots (wsw-* and wt-*) are dropped too, which cs.sh does NOT do — the home
   # Mac has the screen space for them and this laptop does not. On 2026-09-09 the home Mac
   # had 28 sessions and 13 desktop tabs; the 10 wsw-* slots were the bulk of the gap. They
   # are agent working slots you dip into, not standing tabs, which is the same argument
-  # cs.sh already makes for c1-c5/m1-m5. `--all` keeps them in the layout; naming one
+  # cs.sh already makes for m1-m5. `--all` keeps them in the layout; naming one
   # (`rcs wt-pr-915`) always works regardless, via remote_sessions_all below.
   local out
   out=$(remote_sessions_all \
         | grep -Ev '^m1-[0-9]{6}$' \
-        | grep -Ev '^(c[1-5]|m[1-5])$')
+        | grep -Ev '^(m[1-5])$')
   # An explicit branch rather than a command held in a variable: `$filter` unquoted
   # relies on word-splitting to reassemble a command line, which is fragile and hides
   # the pattern from the reader.

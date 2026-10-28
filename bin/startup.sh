@@ -4,7 +4,7 @@
 # Usage:
 #   ./startup.sh              # start ALL sessions
 #   ./startup.sh aih          # start just aih
-#   ./startup.sh aih c1 ws    # start specific sessions
+#   ./startup.sh aih m1 ws    # start specific sessions
 #   ./startup.sh --list       # show available session names
 #   ./startup.sh --status     # show running tmux sessions
 #

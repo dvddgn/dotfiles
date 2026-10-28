@@ -402,7 +402,7 @@ write_servers() {
   # Slots reserve their port in a <worktree>.port file; the clones and the shared
   # services have fixed ones (services.sh owns that table). Together these turn a
   # bare port number into "who is this".
-  local portmap="3000=aih;3001=c1;3002=c2;3003=c3;3004=c4;3005=c5;3006=m1;3007=m2;"
+  local portmap="3000=aih;3006=m1;3007=m2;"
   portmap+="3008=m3;3009=m4;3010=m5;3011=hre;3036=vite;5432=postgres;6379=redis;" 
   local f
   for f in "$HOME"/code/dvddgn/aih-wt-*.port; do
@@ -670,13 +670,13 @@ cmd_iterm_restore() {
     # Stray sess-HHMMSS-style sessions from a VS Code restart, not a real work
     # slot - see the tmux skill's cleanup section. Never worth a tab.
     [[ "$sess" =~ ^m1-[0-9]{6}$ ]] && continue
-    # c1-c5/m1-m5 (the Codex-loop and manual clones) are optional tabs, not
+    # m1-m5 (the manual clones) are optional tabs, not
     # standing clutter - DD isn't using them day to day (2026-08-31). The
     # sessions themselves still exist (ensure_core_sessions keeps them
     # available for the loop / a quick reattach); they just don't earn an
     # always-open tab any more. Open one on demand with `cs tab <name>`
     # (e.g. `cs tab m3`) exactly when you actually need it.
-    [[ "$sess" =~ ^(c[1-5]|m[1-5])$ ]] && continue
+    [[ "$sess" =~ ^(m[1-5])$ ]] && continue
     if [[ "$sess" == "claw" || "$sess" == ops-* || "$sess" == prj-* ]]; then
       win_id=$personal_win; personal_n=$((personal_n + 1)); n=$personal_n
     else

@@ -20,7 +20,7 @@ ALL_SESSIONS=("${STATIC_SESSIONS[@]}" "${WT_SESSIONS[@]}")
 #
 # Keep others by default. --take restores the old behaviour, which is still the
 # only way for a checkout that genuinely shares: an old branch with no
-# VITE_RUBY_PORT, or a slot past the 15-index Redis ceiling.
+# VITE_RUBY_PORT, or a slot past the 31-index Redis ceiling.
 KEEP_OTHERS=true
 TMUX_PROJECT="$HOME/code/dvddgn/dotfiles/bin/tmux-project.sh"
 
@@ -185,12 +185,12 @@ do_action() {
 RAILS_CMD="bin/rails server -p $PORT"
 # Every checkout defaults to redis db0, so all workers pop from one queue and a
 # job dispatched here can be executed by another checkout running different code
-# - silently, and recorded as a real result. Redis has 16 databases; giving a
+# - silently, and recorded as a real result. Redis has 32 databases; giving a
 # checkout its own makes its queue invisible to every other worker.
 #
 # Allocated when Sidekiq is first started here, not at slot creation: a checkout
-# with no worker has nothing to isolate, and there are only 8 slot indices.
-# Clones hold 1-7 (fixed, set once in their own .env); slots take 8-15; anything
+# with no worker has nothing to isolate, and there are 24 slot indices (Redis raised to 32 databases, 2026-10-28).
+# Clones hold 1-7 (fixed, set once in their own .env); slots take 8-31; anything
 # unallocated stays on db0 and behaves exactly as before.
 #
 # ENV.fetch('REDIS_URL', ...) has been in config/initializers/sidekiq.rb since
@@ -245,7 +245,7 @@ resolve_redis_db() {
   db=$(cat "$marker" 2>/dev/null || true)
   env_db=$(redis_db_from_env "$wt")
   if [[ -n "$db" ]]; then
-    if [[ ! "$db" =~ ^(8|9|1[0-5])$ ]]; then
+    if [[ ! "$db" =~ ^([89]|[12][0-9]|3[01])$ ]]; then
       echo "Invalid Redis allocation marker $marker: '$db'" >&2
       rmdir "$lock"
       return 1
@@ -255,13 +255,13 @@ resolve_redis_db() {
       rmdir "$lock"
       return 1
     fi
-  elif [[ "$env_db" =~ ^(8|9|1[0-5])$ ]] && ! redis_db_claimed_elsewhere "$wt" "$env_db"; then
+  elif [[ "$env_db" =~ ^([89]|[12][0-9]|3[01])$ ]] && ! redis_db_claimed_elsewhere "$wt" "$env_db"; then
     db="$env_db"
     printf '%s\n' "$db" > "$marker"
     echo "  (adopted existing Redis db $db for $(basename "$wt"))" >&2
   else
     db=""
-    for candidate_db in {8..15}; do
+    for candidate_db in {8..31}; do
       if ! redis_db_claimed_elsewhere "$wt" "$candidate_db"; then
         db="$candidate_db"
         break
@@ -289,7 +289,7 @@ REDIS_DB=""
 if [[ "$ACTION" != stop && "$SESSION" == wt-* && -d "$SESSION_DIR" ]]; then
   REDIS_DB=$(resolve_redis_db "$SESSION_DIR") || exit 1
   if [[ -z "$REDIS_DB" ]]; then
-    echo "  WARNING: no free Redis index (8-15 all taken) - $SESSION stays on db0, shared" >&2
+    echo "  WARNING: no free Redis index (8-31 all taken) - $SESSION stays on db0, shared" >&2
   fi
 fi
 SIDEKIQ_CMD="${REDIS_DB:+REDIS_URL=redis://localhost:6379/$REDIS_DB }bundle exec sidekiq -C config/sidekiq.yml"

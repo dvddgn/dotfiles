@@ -64,7 +64,9 @@ case "${1:-}" in
     if [ -s "$file" ]; then
       while IFS= read -r line; do existing+=("$line"); done < "$file"
     fi
-    write "${existing[@]}" "$@"
+    # bash 3.2 (macOS) treats an empty array as unset under set -u, so a plain
+    # "${existing[@]}" aborts the first add of a session. Expand it only if set.
+    write ${existing[@]+"${existing[@]}"} "$@"
     sed 's/^/  ▸ /' "$file"
     ;;
   -h|--help|help)

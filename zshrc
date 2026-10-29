@@ -217,6 +217,7 @@ vs() {
     m[1-5]) code "$base/advice-innovation-hub-${1}/${1}.code-workspace" ;;
     ws)   code "$base/workspace-app/ws.code-workspace" ;;
     claw) code "$HOME/.openclaw/workspace/claw.code-workspace" ;;
+    sdp)  code "$base/system-design-practice/system-design.code-workspace" ;;
     .)
       # For a worktree slot's own shell window, where you're already sitting in
       # its directory and just want its standalone workspace without typing the
@@ -229,7 +230,7 @@ vs() {
         *) echo "Multiple *.code-workspace files here, pick one: ${found[*]}" ;;
       esac
       ;;
-    *)    echo "Usage: vs <aih|m1-m5|ws|claw|.>" ;;
+    *)    echo "Usage: vs <aih|m1-m5|ws|claw|sdp|.>" ;;
   esac
 }
 

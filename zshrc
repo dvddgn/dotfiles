@@ -230,7 +230,7 @@ vs() {
         *) echo "Multiple *.code-workspace files here, pick one: ${found[*]}" ;;
       esac
       ;;
-    *)    echo "Usage: vs <aih|m1-m5|wt|ws|hre|claw|.>" ;;
+    *)    echo "Usage: vs <aih|m1-m5|ws|hre|claw|.>" ;;
   esac
 }
 

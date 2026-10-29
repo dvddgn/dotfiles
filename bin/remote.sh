@@ -38,6 +38,10 @@ if [[ -z "${REMOTE_SH_ANY_HOST:-}" && -n "$this_uuid" && "$this_uuid" != "$HOME_
   exit 1
 fi
 
+# Plain `tmux` must mean DD's default server. Run from an Agent-tab chat, TMUX can point
+# at the agent-chat worker's own server instead, and every list below would describe that.
+unset TMUX TMUX_PANE
+
 CODE="$HOME/code/dvddgn"
 TS=/opt/homebrew/bin/tailscale
 [[ -x "$TS" ]] || TS=$(command -v tailscale) || TS=""
@@ -66,6 +70,18 @@ list_all() {
   echo "  tmux sessions"
   tmux ls -F '    #{session_name}  (#{session_windows} windows)' 2>/dev/null || echo "    (no tmux server)"
   echo
+  # The agent-chat worker runs on its own tmux server (-L agent-chat, since workspace-app
+  # PR #97), so the list above never shows it. Anything else on that server was created by
+  # a chat before chats stopped inheriting its TMUX (2026-10-29).
+  local acs
+  acs=$(tmux -L agent-chat ls -F '#{session_name}' 2>/dev/null)
+  if [[ -n "$acs" ]]; then
+    echo "  on the agent-chat worker's own tmux server (not in the list above)"
+    while IFS= read -r line; do
+      echo "    $line:  ssh -t $USER_AT 'tmux -L agent-chat attach -t $line'"
+    done <<< "$acs"
+    echo
+  fi
   echo "  worktree slots"
   local f slug port d
   shopt -s nullglob
@@ -192,6 +208,16 @@ main() {
   local what="${1:-}"
   if [[ -z "$what" ]]; then list_all; exit 0; fi
   if [[ "$what" == "pick" || "$what" == "-i" ]]; then cmd_pick; exit 0; fi
+  if [[ "$what" == "agent-chat-worker" || "$what" == "agent-chat" ]]; then
+    if ! tmux -L agent-chat has-session -t agent-chat-worker 2>/dev/null; then
+      echo "No agent-chat-worker on its own tmux server (tmux -L agent-chat)." >&2
+      echo "A worker cron started before login runs under nohup instead; check: ps -ax | grep 'agent-chat/worker'" >&2
+      exit 1
+    fi
+    echo "# Run on the LAPTOP. Home Mac is $IP. Read-only look: detach with Ctrl-b d, never Ctrl-c."
+    echo "  ssh -t $USER_AT 'tmux -L agent-chat attach -t agent-chat-worker'"
+    exit 0
+  fi
   # Resolve BEFORE printing the header, so a bad name gives an error and nothing else.
   local dir=""
   if ! dir=$(slot_dir_for "$what") && ! tmux has-session -t "$what" 2>/dev/null; then

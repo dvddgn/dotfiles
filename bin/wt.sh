@@ -288,18 +288,24 @@ OSA
 # The session shape, in one place, so `new` and `restore` cannot drift apart. The
 # names are load-bearing: services.sh drives windows called rails/sidekiq/vite,
 # and bin/sidekiq refuses to run unless the session has one named sidekiq.
-# How many agent windows a session is scaffolded with. Clone sessions get three
-# (startup.sh's cc1/cc2/cc3); slots got one, which meant every extra agent had to
-# be added by hand at the moment it was wanted. Override with WT_CLAUDES.
-CLAUDES_DEFAULT=${WT_CLAUDES:-3}
+# How many agent windows a session is scaffolded with. Default 0 since 2026-10-29:
+# agents now run in Workspace Agent-tab chats, the loop and Remote Control sessions
+# (Claude app -> Devices -> home-mac), so pre-made claude/claude2/claude3 windows
+# sat empty in every slot. Add one when wanted with `wt agent <slug>`, or ask for
+# them up front with --claudes N or WT_CLAUDES=N.
+CLAUDES_DEFAULT=${WT_CLAUDES:-0}
 
 make_windows() {
   local session=$1 wt=$2 claudes=${3:-$CLAUDES_DEFAULT} i
-  tmux new-session -d -s "$session" -c "$wt" -n claude
-  for ((i = 2; i <= claudes; i++)); do
-    tmux new-window -d -t "$session" -n "claude$i" -c "$wt"
-  done
-  tmux new-window -d -t "$session" -n rails   -c "$wt"
+  if ((claudes >= 1)); then
+    tmux new-session -d -s "$session" -c "$wt" -n claude
+    for ((i = 2; i <= claudes; i++)); do
+      tmux new-window -d -t "$session" -n "claude$i" -c "$wt"
+    done
+    tmux new-window -d -t "$session" -n rails   -c "$wt"
+  else
+    tmux new-session -d -s "$session" -c "$wt" -n rails
+  fi
   tmux new-window -d -t "$session" -n sidekiq -c "$wt"
   tmux new-window -d -t "$session" -n vite    -c "$wt"
   tmux new-window -d -t "$session" -n shell   -c "$wt"
@@ -726,7 +732,7 @@ Slot ready.
   path      $wt
   branch    $branch
 $urlline
-  agent     tmux send-keys -t $session:claude 'ccp <project-slug>' C-m
+  agent     wt agent $slug        (adds a claude window; none are pre-made)
   sidekiq   window is idle on purpose — only one Sidekiq may run across all clones
   vite      window is idle too — it binds 3036 exclusively; assets autoBuild without it
 $uiline

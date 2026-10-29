@@ -39,8 +39,8 @@
 #   directory   ~/code/dvddgn/workspace-app-wt-<slug>   (agents already use this name)
 #   session     wsw-<slug>   NOT wt-<slug>: that namespace is AIH's, and cs.sh
 #               classifies wt-* as an AIH slot.
-#   windows     shell, dev, cc1, cc2, cx1   (core-sessions.txt's convention:
-#               shell first, agent windows last, the session's own work between)
+#   windows     shell, dev   (no agent windows since 2026-10-29: agents run in
+#               Agent-tab chats, the loop and Remote Control sessions instead)
 #   port        3100 upward, first free, recorded in <worktree>.port. The AIH
 #               range (3000-3099, allocated by services.sh) is left alone —
 #               services.sh does not know workspace-app exists.
@@ -167,17 +167,14 @@ link_memory() {
 
 # ---- windows ------------------------------------------------------------------
 # The session shape, in one place, so `new` and `restore` cannot drift apart.
-# core-sessions.txt's convention for every standing session: "shell" first,
-# "cc1,cc2,cx1" last, and whatever is specific to this session in between — here
-# that is the one `dev` window. Two Claude windows rather than three because a
-# slot is one context; cx1 is the Codex window every session gets.
+# "shell" first, then whatever is specific to this session - here the one `dev`
+# window. The cc1/cc2/cx1 agent windows were dropped on 2026-10-29: agents now run
+# in Workspace Agent-tab chats, the loop and Remote Control sessions, so those
+# windows sat empty. Add one by hand when wanted (see the `agent` line printed).
 make_windows() {
   local session=$1 wt=$2
   tmux new-session -d -s "$session" -c "$wt" -n shell
   tmux new-window -d -t "$session" -n dev -c "$wt"
-  tmux new-window -d -t "$session" -n cc1 -c "$wt"
-  tmux new-window -d -t "$session" -n cc2 -c "$wt"
-  tmux new-window -d -t "$session" -n cx1 -c "$wt"
   [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$session" >/dev/null 2>&1 || true
   echo "  tmux session $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
 }
@@ -409,7 +406,7 @@ Slot ready.
   branch    $branch
 $urlline
 $uiline
-  agent     tmux send-keys -t $session:cc1 'ccp <project-slug>' C-m
+  agent     tmux new-window -t $session -n cc1 -c $wt   (none are pre-made)
   close     wsw rm $slug        (from outside the slot)
 
 Attach:

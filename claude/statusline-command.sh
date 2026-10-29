@@ -66,6 +66,12 @@ printf "%b\n" "$line3"
 # Line 4: context bar
 printf "%b \033[90m%s%% used\033[0m\n" "$bar" "$used"
 
+# Written by `sync --auto` (dotfiles/bin/sync.sh) when the hourly sync fails, removed when it next
+# succeeds. Gitignored, so it only ever describes this Mac.
+if [ -s "$HOME/.claude/status/auto-sync-failure.txt" ]; then
+  printf "\033[31m  ! auto-sync failed - cat ~/.claude/status/auto-sync-failure.txt\033[0m\n"
+fi
+
 # Recap bullets - set by `recap` (~/bin/recap), keyed to this session.
 # Falls back to a directory-scoped recap when the session has none of its own.
 recap_file="$HOME/.claude/recap/${session_id}.txt"

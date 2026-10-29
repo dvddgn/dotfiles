@@ -216,7 +216,6 @@ vs() {
     aih)  code "$base/advice-innovation-hub/aih.code-workspace" ;;
     m[1-5]) code "$base/advice-innovation-hub-${1}/${1}.code-workspace" ;;
     ws)   code "$base/workspace-app/ws.code-workspace" ;;
-    hre)  code "$base/horizons-real-estate/hre.code-workspace" ;;
     claw) code "$HOME/.openclaw/workspace/claw.code-workspace" ;;
     .)
       # For a worktree slot's own shell window, where you're already sitting in
@@ -230,7 +229,7 @@ vs() {
         *) echo "Multiple *.code-workspace files here, pick one: ${found[*]}" ;;
       esac
       ;;
-    *)    echo "Usage: vs <aih|m1-m5|ws|hre|claw|.>" ;;
+    *)    echo "Usage: vs <aih|m1-m5|ws|claw|.>" ;;
   esac
 }
 

@@ -88,7 +88,7 @@ session_block() {
   tmux list-windows -t "$sess" -F '  #{window_index}: #{window_name}' 2>/dev/null
   echo
   echo "  # an iTerm tab on the laptop, attached over the tailnet (preferred)"
-  echo "  rcs --all tab $sess"
+  echo "  rcs tab $sess"
   echo
   echo "  # or a plain SSH attach from any terminal, phone included"
   echo "  ssh -t $USER_AT '$TATTACH $sess'"
@@ -126,9 +126,12 @@ slot_block() {
     echo
   fi
   [[ -n "$sess" ]] && { session_block "$sess"; echo; }
-  echo "  # when the PR is merged, on the home Mac:"
-  echo "  tailscale serve --tcp ${port:-PORT} off   # just this one; 'rserve off' drops them all"
-  echo "  wt done $slug                             # or 'wt rm $slug' to park it"
+  echo "  # when the PR is merged, on the home Mac (each also drops this slot's tailnet rule):"
+  if [[ "$(basename "$dir")" == workspace-app-wt-* ]]; then
+    echo "  wsw rm $slug"
+  else
+    echo "  wt done $slug                             # or 'wt rm $slug' to park it"
+  fi
 }
 
 # Same picker as `rcs pick`. `remote` had exactly the friction rcs did - it lists ~50 names

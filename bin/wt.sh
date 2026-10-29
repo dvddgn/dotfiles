@@ -22,6 +22,7 @@
 # `new` finishes by exposing the slot's Rails port to the tailnet (rserve) and printing the
 # connect block (remote <slug>), so the slot arrives usable rather than merely created.
 # --no-expose skips that; --no-rails implies it.
+#   wt serve  <slug>                      # start an existing slot's Rails, expose it, print the connect block
 #   wt agent  <slug> [window-name]
 #   wt project <slug> <project-ref>       # bind/change the Workspace project
 #   wt project <slug> --clear             # remove the project binding
@@ -304,46 +305,6 @@ make_windows() {
   tmux new-window -d -t "$session" -n shell   -c "$wt"
   [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$session" >/dev/null 2>&1 || true
   echo "  tmux session $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
-}
-
-# The orchestrator is not a slot: it has no checkout of its own and drives the
-# others from the parent clone, so it gets agent windows and a shell and none of
-# the service windows - including the open-worktree/close-worktree receiver
-# windows those two skills expect to find at positions 1/2. Listed here so
-# `wt restore` brings it all back after a reboot along with everything else -
-# nothing else creates it. Named "_orchestrator" (leading underscore) so it
-# sorts to the top of the iTerm2 tab list.
-EXTRA_SESSIONS=(_orchestrator)
-extra_session_dir() {
-  case "$1" in
-    _orchestrator) echo "$PARENT" ;;
-    *) return 1 ;;
-  esac
-}
-
-make_agent_windows() {
-  local session=$1 dir=$2 n=${3:-$CLAUDES_DEFAULT} i
-  if tmux has-session -t "$session" 2>/dev/null; then
-    echo "  $session: session already up"
-    return 0
-  fi
-  if [[ "$session" == "_orchestrator" ]]; then
-    # Positions 1/2: the persistent open-worktree/close-worktree receiver
-    # windows (see those skills). Left bare like every other window here -
-    # restore builds the slot, not the agent inside it; the skill starts
-    # `claude` itself the first time it finds one bare.
-    tmux new-session -d -s "$session" -c "$dir" -n open-worktree
-    tmux new-window -d -t "$session" -n close-worktree -c "$dir"
-    tmux new-window -d -t "$session" -n claude -c "$dir"
-  else
-    tmux new-session -d -s "$session" -c "$dir" -n claude
-  fi
-  for ((i = 2; i <= n; i++)); do
-    tmux new-window -d -t "$session" -n "claude$i" -c "$dir"
-  done
-  tmux new-window -d -t "$session" -n shell -c "$dir"
-  [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$session" >/dev/null 2>&1 || true
-  echo "  $session: $(tmux list-windows -t "$session" -F '#{window_name}' | paste -sd' ' -)"
 }
 
 # ---- vite ---------------------------------------------------------------------
@@ -685,7 +646,7 @@ cmd_new() {
     urlline="  url       http://localhost:$port"
     set_vite_port "$wt" "$port"
   else
-    urlline="  url       no server — start one with: srv $session rails --keep-others"
+    urlline="  url       no server — when DD wants to see it: wt serve $slug"
   fi
 
   # A slot is interactive by definition - nothing automated creates one (the
@@ -772,7 +733,7 @@ $uiline
 $browserline
 
 Attach:
-  tmux attach -t $session
+  pt $session
 EOF
 
   # Expose to the tailnet and print the connect block. Creating a USABLE slot was three
@@ -791,6 +752,42 @@ EOF
       "$BASE/dotfiles/bin/remote.sh" "$slug" 2>/dev/null
     fi
   fi
+}
+
+# ---- serve --------------------------------------------------------------------
+# "Set it up so I can see it" on a slot that already exists - typically one an
+# Agent-tab chat made with --no-rails to edit code in. Same end state as a plain
+# `wt new`: Rails running, the port on the tailnet, the connect block printed.
+# It waits for Rails to answer before exposing, so the URL it prints is one that
+# loads rather than one that will load eventually.
+cmd_serve() {
+  local slug=${1:-}
+  [[ -n "$slug" ]] || die "usage: wt serve <slug>"
+  local wt="$BASE/aih-wt-$slug" session="wt-$slug"
+  [[ -e "$wt/.git" ]] || die "no slot at $wt (wt ls)"
+  tmux has-session -t "$session" 2>/dev/null || die "no tmux session $session - run: wt restore $slug"
+  "$SERVICES" "$session" start rails --keep-others >/dev/null 2>&1
+  local port waited=0 code=""
+  while ((waited < 120)); do
+    port=$(cat "$wt.port" 2>/dev/null)
+    if [[ -n "$port" ]]; then
+      code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://localhost:$port/" 2>/dev/null)
+      [[ -n "$code" && "$code" != "000" ]] && break
+    fi
+    sleep 3; waited=$((waited + 3))
+  done
+  [[ -n "$port" ]] || die "Rails did not record a port - read the rails window: pt $session"
+  if [[ -z "$code" || "$code" == "000" ]]; then
+    echo "Rails is not answering on $port after 120s - read the rails window: pt $session" >&2
+    exit 1
+  fi
+  set_vite_port "$wt" "$port"
+  echo "Rails answering on $port (HTTP $code)."
+  "$BASE/dotfiles/bin/rserve.sh" "$slug" >/dev/null 2>&1 \
+    && echo "Exposed to the tailnet on port $port." \
+    || echo "Could not expose port $port - run 'rserve $slug' by hand."
+  echo
+  "$BASE/dotfiles/bin/remote.sh" "$slug" 2>/dev/null
 }
 
 # ---- rm -----------------------------------------------------------------------
@@ -1071,7 +1068,7 @@ cmd_agent() {
   agent   tmux send-keys -t ${session}:${name} 'ccp <project-slug>' C-m
 
 Attach:
-  tmux attach -t $session
+  pt $session
 EOF
 }
 
@@ -1143,7 +1140,7 @@ A session already running inside the slot keeps working - the directory kept its
 inode, so only its \`pwd\` reads stale. Tell it to \`cd $nwt\` when convenient.
 
 Attach:
-  tmux attach -t wt-$new
+  pt wt-$new
 EOF
 }
 
@@ -1165,13 +1162,7 @@ cmd_restore() {
     esac
   done
 
-  local wt slug session found=0 extras=0 extra dir
-  for extra in "${EXTRA_SESSIONS[@]}"; do
-    [[ -n "$slug_filter" && "$slug_filter" != "$extra" ]] && continue
-    dir=$(extra_session_dir "$extra") || continue
-    make_agent_windows "$extra" "$dir"
-    extras=$((extras + 1))
-  done
+  local wt slug session found=0
 
   shopt -s nullglob
   for wt in "$BASE"/aih-wt-*/; do
@@ -1215,7 +1206,7 @@ cmd_restore() {
     fi
   done
 
-  [[ "$found" == "0" && "$extras" == "0" ]] && { echo "No slots found."; return 0; }
+  [[ "$found" == "0" ]] && { echo "No slots found."; return 0; }
   [[ "$found" == "0" ]] && return 0
   cat <<EOF
 
@@ -1309,6 +1300,7 @@ else:
 case "${1:-}" in
   new)    shift; cmd_new "$@" ;;
   agent)  shift; cmd_agent "$@" ;;
+  serve)  shift; cmd_serve "$@" ;;
   project) shift; cmd_project "$@" ;;
   restore) shift; cmd_restore "$@" ;;
   done)   shift; cmd_done "$@" ;;

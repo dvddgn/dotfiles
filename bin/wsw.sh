@@ -7,7 +7,12 @@
 # and ten-plus live AIH slots depend on it behaving exactly as it does.
 #
 # Usage:
-#   wsw new     <slug> [branch] [--project <ref>] [--no-dev] [--ui]
+#   wsw new     <slug> [branch] [--project <ref>] [--no-dev] [--no-expose] [--ui]
+#   wsw serve   <slug>     # start an existing slot's dev server, expose it, print the connect block
+#
+# `new` finishes like `wt new`: the dev server answering, its port exposed to the tailnet
+# (rserve) and the connect block printed (remote <slug>), so DD can open it from another
+# machine. --no-expose skips the tailnet step; --no-dev implies it.
 #
 # --ui is OPT-IN since 2026-09-10, matching wt.sh: the default opens no GUI, because DD
 # works remotely over SSH and a window opened here lands on a screen he cannot see.
@@ -82,7 +87,9 @@ PORT_MAX=3199
 die() { echo "Error: $*" >&2; exit 1; }
 
 usage() {
-  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+  # The header comment block, up to the first non-comment line - a hardcoded range
+  # truncates silently whenever the header grows (same fix as wt.sh).
+  awk 'NR>1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
   exit "${1:-0}"
 }
 
@@ -174,10 +181,25 @@ make_windows() {
 
 # ---- dev server ---------------------------------------------------------------
 # Start it in its own window so it keeps running after this script exits and DD
-# can read its output.
+# can read its output. --hostname 127.0.0.1 because the default binds every
+# interface, which collides with the `tailscale serve` listener rserve puts on the
+# same port (EADDRINUSE on ::<port>). Loopback is all tailscale serve needs.
 start_dev() {
   local session=$1 port=$2
-  tmux send-keys -t "${session}:dev" "npm run dev -- -p $port" C-m
+  tmux send-keys -t "${session}:dev" "npm run dev -- -p $port --hostname 127.0.0.1" C-m
+}
+
+# Tailnet step shared by `new` and `serve`: expose the port, then print the block
+# DD connects with. Done here rather than left to the caller because the caller
+# was an agent, and the step it forgot was always this one.
+expose_and_report() {
+  local slug=$1 port=$2
+  echo
+  "$BASE/dotfiles/bin/rserve.sh" "$slug" >/dev/null 2>&1 \
+    && echo "Exposed to the tailnet on port $port." \
+    || echo "Could not expose port $port - run 'rserve $slug' by hand."
+  echo
+  "$BASE/dotfiles/bin/remote.sh" "$slug" 2>/dev/null
 }
 
 # A running process is not a serving app. `next dev` returns from its own boot
@@ -243,11 +265,12 @@ close_iterm_tab() {
 
 # ---- new ----------------------------------------------------------------------
 cmd_new() {
-  local slug="" branch="" project_ref="" start_dev_server=true open_ui=false
+  local slug="" branch="" project_ref="" start_dev_server=true open_ui=false expose=true
   while (($#)); do
     case "$1" in
       --project) project_ref="${2:?--project needs a Workspace project reference}"; shift 2 ;;
       --no-dev) start_dev_server=false; shift ;;
+      --no-expose) expose=false; shift ;;
       --ui) open_ui=true; shift ;;
       --no-ui) open_ui=false; shift ;;   # no-op since 2026-09-10; kept so old docs still work
       -*) die "unknown flag $1" ;;
@@ -335,7 +358,7 @@ cmd_new() {
       || echo "  project status could not be applied; retry with: $TMUX_PROJECT bind $session $project_ref"
   fi
 
-  local urlline
+  local urlline answering=false
   if $start_dev_server; then
     start_dev "$session" "$port"
     echo "  dev server starting on $port (next dev compiles on first request - waiting for it to answer)"
@@ -344,17 +367,18 @@ cmd_new() {
       local code=${ready% *} kind=${ready#* }
       if [[ "$kind" == "next" ]]; then
         echo "  dev server answering: HTTP $code, Next.js confirmed"
+        answering=true
         urlline="  url       http://localhost:$port   (HTTP $code)"
       else
         echo "  dev server answering: HTTP $code, but the body has no /_next/ reference - check the dev window"
         urlline="  url       http://localhost:$port   (HTTP $code - NOT confirmed as Next.js)"
       fi
     else
-      echo "  dev server did NOT answer on $port within the timeout - read: tmux attach -t $session (window dev)"
+      echo "  dev server did NOT answer on $port within the timeout - read: pt $session (window dev)"
       urlline="  url       http://localhost:$port   (NOT ANSWERING - see the dev window)"
     fi
   else
-    urlline="  url       no server (--no-dev) - start one with: tmux send-keys -t $session:dev 'npm run dev -- -p <port>' C-m"
+    urlline="  url       no server (--no-dev) - when DD wants to see it: wsw serve $slug"
   fi
 
   # A slot is interactive by definition — nothing automated creates one, since
@@ -386,8 +410,42 @@ $uiline
   close     wsw rm $slug        (from outside the slot)
 
 Attach:
-  tmux attach -t $session
+  pt $session
 EOF
+
+  if $expose && $answering; then
+    expose_and_report "$slug" "$port"
+  fi
+}
+
+# ---- serve --------------------------------------------------------------------
+# "Set it up so I can see it" on a slot that already exists - typically one an
+# Agent-tab chat made with --no-dev to edit code in. Allocates a port if the slot
+# never had one, starts the dev server, waits until Next.js actually answers, then
+# exposes it and prints the connect block. Same end state as a plain `wsw new`.
+cmd_serve() {
+  local slug=${1:-}
+  [[ -n "$slug" ]] || die "usage: wsw serve <slug>"
+  local wt="$BASE/workspace-app-wt-$slug" session="wsw-$slug" port
+  [[ -e "$wt/.git" ]] || die "no slot at $wt (wsw ls)"
+  tmux has-session -t "$session" 2>/dev/null || die "no tmux session $session - run: wsw restore $slug"
+  port=$(cat "$wt.port" 2>/dev/null)
+  if [[ -z "$port" ]]; then
+    port=$(alloc_port) || die "no free port in $PORT_BASE-$PORT_MAX"
+    echo "$port" > "$wt.port"
+    echo "  port $port allocated (recorded in $(basename "$wt.port"))"
+  fi
+  if port_listening "$port"; then
+    echo "  something is already listening on $port - assuming it is this slot's dev server"
+  else
+    start_dev "$session" "$port"
+    echo "  dev server starting on $port (next dev compiles on first request - waiting for it to answer)"
+  fi
+  local ready
+  ready=$(wait_for_dev "$port") || die "dev server did NOT answer on $port within the timeout - read: pt $session (window dev)"
+  [[ "${ready#* }" == "next" ]] || die "port $port answers HTTP ${ready% *} but not as Next.js - check: pt $session (window dev)"
+  echo "  dev server answering: HTTP ${ready% *}, Next.js confirmed"
+  expose_and_report "$slug" "$port"
 }
 
 # ---- rm -----------------------------------------------------------------------
@@ -451,6 +509,15 @@ cmd_rm() {
   # The port file lives BESIDE the worktree — anything inside would show up in
   # every `git status` — which is also why `git worktree remove` cannot take it
   # with the directory and why nothing else ever removes it.
+  # Drop the tailnet rule BEFORE the port file, which is how the port is known. A rule
+  # outlives its slot, and the next slot handed this port would be published the moment
+  # its server started (same reasoning as wt.sh). Per-port, never `rserve off`.
+  if [[ -f "$wt.port" ]]; then
+    local _p; _p=$(cat "$wt.port" 2>/dev/null)
+    if [[ -n "$_p" ]] && command -v tailscale >/dev/null 2>&1; then
+      tailscale serve --tcp "$_p" off >/dev/null 2>&1 && echo "  tailnet exposure for port $_p removed"
+    fi
+  fi
   [[ -f "$wt.port" ]] && rm -f "$wt.port" && echo "  port file removed"
 
   if [[ -d "$wt" ]]; then
@@ -591,7 +658,7 @@ cmd_restore() {
     [[ -x "$TMUX_PROJECT" ]] && "$TMUX_PROJECT" apply "$session" >/dev/null 2>&1 || true
     port=$(cat "$wt.port" 2>/dev/null)
     if [[ -n "$port" ]]; then
-      echo "     dev:    tmux send-keys -t $session:dev 'npm run dev -- -p $port' C-m"
+      echo "     dev:    wsw serve $slug"
     else
       echo "     dev:    no port recorded - this slot was hand-rolled; wsw rm and wsw new to adopt it"
     fi
@@ -604,9 +671,10 @@ cmd_restore() {
 
 case "${1:-}" in
   new)     shift; cmd_new "$@" ;;
+  serve)   shift; cmd_serve "$@" ;;
   rm)      shift; cmd_rm "$@" ;;
   ls)      shift; cmd_ls "$@" ;;
   restore) shift; cmd_restore "$@" ;;
   ""|-h|--help) usage ;;
-  *) die "unknown command '$1' (use new, rm, ls or restore)" ;;
+  *) die "unknown command '$1' (use new, serve, rm, ls or restore)" ;;
 esac

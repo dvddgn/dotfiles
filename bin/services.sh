@@ -53,14 +53,30 @@ session_dir() {
 # stays stable across restarts. Clones own 3000-3011; worktrees start at 3012.
 # The record lives BESIDE the worktree, not inside it, so it never shows up as an untracked
 # file in git status or gets committed by accident.
+#
+# A slot's Vite runs on Rails + 30 (see VITE_PORT below), so a candidate is only free when
+# both its own port and its Vite port are clear, and it is not another slot's Vite port.
+# 3036/3037 are skipped outright: every clone's config/vite.json pins Vite there, and on
+# 2026-10-29 a slot handed 3036 left the parent checkout's Vite unable to start.
 resolve_wt_port() {
   local dir=$1 f=$1.port p=3012
   [[ -f "$f" ]] && { cat "$f"; return; }
-  while lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1 \
-     || grep -qx "$p" "$HOME"/code/dvddgn/aih-wt-*.port 2>/dev/null; do
+  while ! wt_port_free "$p"; do
     p=$((p+1))
   done
   echo "$p" | tee "$f"
+}
+
+port_listening() { lsof -nP -iTCP:$1 -sTCP:LISTEN >/dev/null 2>&1; }
+port_claimed()   { grep -qx "$1" "$HOME"/code/dvddgn/aih-wt-*.port 2>/dev/null; }
+
+wt_port_free() {
+  local p=$1
+  (( p == 3036 || p == 3037 )) && return 1
+  port_listening "$p" || port_listening $((p+30)) && return 1
+  (( p - 30 >= 3012 )) && port_listening $((p-30)) && return 1
+  port_claimed "$p" || port_claimed $((p+30)) || port_claimed $((p-30)) && return 1
+  return 0
 }
 
 # cct-created sessions have a single shell window, so create service windows on demand.

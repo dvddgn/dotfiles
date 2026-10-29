@@ -38,11 +38,35 @@ PUSH=0
 # Mac it describes), which the statusline shows in every session, plus a macOS notification. The
 # marker is removed on the next clean run. A job that fails quietly is not a sync job: the old
 # cron job logged 124 PUSH FAILED entries to /tmp before anyone looked.
+#
+# A run must also never hang. On 2026-10-29 the laptop woke for 9 seconds at 18:22, launchd ran
+# the missed 18:15 job, and the Mac slept again during the dotfiles fetch. The ssh connection to
+# GitHub died without a FIN, so ssh waited on it for 27 minutes until it was killed by hand. A
+# hung run is worse than a failed one: launchd starts no new run while it lives, so every later
+# :15 is skipped, and no marker is written, so the statusline stays silent. Two guards:
+#   - ssh keepalives, so a dead connection fails in about 45s instead of never;
+#   - a watchdog that, after AUTO_SYNC_LIMIT seconds (default 600), writes the marker and kills
+#     the run. A rebase it interrupts is reported by the next run's "already in progress" check.
 auto_sync() {
   local marker="$HOME/.claude/status/auto-sync-failure.txt"
   local failures=() r name out rc un L R branch
   stamp() { date '+%Y-%m-%d %H:%M:%S'; }
   echo "[$(stamp)] auto-sync on $(hostname -s)"
+
+  export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ConnectTimeout=30}"
+  local limit="${AUTO_SYNC_LIMIT:-600}" self=$$
+  (
+    exec 2>/dev/null   # else stop_watchdog logs "Terminated: sleep" on every clean run
+    sleep "$limit"
+    mkdir -p "$(dirname "$marker")"
+    echo "auto-sync failed on $(hostname -s) at $(stamp) - still running after ${limit}s, killed - log: ~/Library/Logs/auto-sync.log" > "$marker"
+    echo "  FAILED: still running after ${limit}s, killed"
+    osascript -e "display notification \"run hung for ${limit}s and was killed\" with title \"auto-sync failed\"" >/dev/null 2>&1
+    # The whole process group: the stuck process is a grandchild (bash -> git -> ssh).
+    kill -TERM -- "-$(ps -o pgid= -p "$self" | tr -d ' ')"
+  ) &
+  local watchdog=$!; disown "$watchdog"
+  stop_watchdog() { pkill -P "$watchdog" 2>/dev/null; kill "$watchdog" 2>/dev/null; }
 
   # Pushes and SSH pulls need the ssh-agent that oh-my-zsh's ssh-agent plugin starts from the
   # first interactive shell; launchd does not inherit it. Same fix as git-auto-sync.sh, which
@@ -107,8 +131,9 @@ auto_sync() {
       printf '%s\n' "${failures[@]}"; } > "$marker"
     printf '  FAILED: %s\n' "${failures[@]}"
     osascript -e "display notification \"${#failures[@]} problem(s) - see ~/.claude/status/auto-sync-failure.txt\" with title \"auto-sync failed\"" >/dev/null 2>&1
-    return 1
+    stop_watchdog; return 1
   fi
+  stop_watchdog
   rm -f "$marker"
   echo "  ok"
 }

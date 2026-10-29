@@ -215,7 +215,6 @@ vs() {
   case "$1" in
     aih)  code "$base/advice-innovation-hub/aih.code-workspace" ;;
     m[1-5]) code "$base/advice-innovation-hub-${1}/${1}.code-workspace" ;;
-    wt)   code "$base/aih-worktrees.code-workspace" ;;
     ws)   code "$base/workspace-app/ws.code-workspace" ;;
     hre)  code "$base/horizons-real-estate/hre.code-workspace" ;;
     claw) code "$HOME/.openclaw/workspace/claw.code-workspace" ;;

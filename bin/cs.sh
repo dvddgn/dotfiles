@@ -102,10 +102,9 @@ write_profiles() {
   # point-in-time question, so that comes from tmux itself.
   tmux list-sessions -F '#{session_name}	#{session_path}' 2>/dev/null > "$STATUS/.tmux-sessions" || : > "$STATUS/.tmux-sessions"
   python3 - "$MAP" "$HOME/.openclaw/workspace/claw.code-workspace" \
-                   "$HOME/code/dvddgn/aih-worktrees.code-workspace" \
                    "$STATUS/.tmux-sessions" <<'PYEOF'
 import json, os, sys
-mapfile, claw_ws, aih_ws, livefile = sys.argv[1:5]
+mapfile, claw_ws, livefile = sys.argv[1:4]
 claw_dir = os.path.expanduser("~/.openclaw/workspace")
 
 rows = []
@@ -138,14 +137,13 @@ if os.path.exists(livefile):
         if len(parts) >= 2 and parts[0]:
             rows.append((parts[0], parts[1]))
 
-claw, aih = {}, {}
+claw = {}
 for sess, cwd in rows:
     base = sess.split(":")[0]
     if not earns(base):
         continue
-    (claw if cwd == claw_dir else aih)[base] = profile(base)
-for extra in KEEP_EXTRA:
-    aih.setdefault(extra, profile(extra))
+    if cwd == claw_dir:
+        claw[base] = profile(base)
 
 def rewrite(path, keep, label):
     ws = json.load(open(path))
@@ -173,7 +171,6 @@ def rewrite(path, keep, label):
     print(f"  {label}: {len(keep)} session profiles")
 
 rewrite(claw_ws, claw, "claw")
-rewrite(aih_ws, aih, "aih-worktrees")
 PYEOF
 }
 

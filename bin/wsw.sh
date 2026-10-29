@@ -119,6 +119,9 @@ port_claimed() {
   local port=$1 f
   shopt -s nullglob
   for f in "$BASE"/workspace-app-wt-*.port; do
+    # A .port file is written after its worktree exists, so one with no directory is
+    # left over from a slot removed by hand. It must not hold the port forever.
+    [[ -d "${f%.port}" ]] || continue
     [[ "$(cat "$f" 2>/dev/null)" == "$port" ]] && return 0
   done
   return 1
@@ -619,6 +622,16 @@ cmd_ls() {
     [[ -d "$p" ]] && continue
     slug2="${p##*/workspace-app-wt-}"
     printf '%-18s %-52s %-6s %-10s %s\n' "$slug2" "!! registered but the directory is gone" "-" "-" "run: git -C $PARENT worktree prune"
+    found=$((found + 1))
+  done
+
+  # A .port file whose worktree is gone no longer claims its port (see port_claimed),
+  # but it is still clutter worth naming.
+  local pf
+  for pf in "$BASE"/workspace-app-wt-*.port; do
+    [[ -d "${pf%.port}" ]] && continue
+    slug2="${pf##*/workspace-app-wt-}"; slug2="${slug2%.port}"
+    printf '%-18s %-52s %-6s %-10s %s\n' "$slug2" "!! orphaned .port file, no worktree" "$(cat "$pf" 2>/dev/null)" "-" "run: rm $pf"
     found=$((found + 1))
   done
 

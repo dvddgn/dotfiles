@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Keeps the Claude Code Remote Control server (`claude rc`, tmux session rc-server) running on
+  the home Mac, so the Claude app's Code tab can start sessions that run here. Runs
+  bin/ensure-rc-server.sh at login (RunAtLoad - the Mac auto-logs-in after a reboot) and every
+  5 minutes, which also catches the server exiting after a network outage.
+  Install / reinstall:  bin/install-rc-server.sh
+  Pause:                touch /tmp/rc-server.paused   (then tmux kill-session -t rc-server)
+  Remove:               launchctl bootout gui/$(id -u)/com.dvddgn.rc-server
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.dvddgn.rc-server</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>/Users/daviddeegan/code/dvddgn/dotfiles/bin/ensure-rc-server.sh</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/daviddeegan</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>/Users/daviddeegan</string>
+		<key>USER</key>
+		<string>daviddeegan</string>
+		<key>LANG</key>
+		<string>en_US.UTF-8</string>
+		<key>LC_ALL</key>
+		<string>en_US.UTF-8</string>
+		<key>PATH</key>
+		<string>/Users/daviddeegan/.rbenv/shims:/opt/homebrew/bin:/Users/daviddeegan/.local/bin:/Users/daviddeegan/.nvm/versions/node/v22.22.0/bin:/Users/daviddeegan/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StartInterval</key>
+	<integer>300</integer>
+	<key>StandardOutPath</key>
+	<string>/Users/daviddeegan/Library/Logs/rc-server.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/daviddeegan/Library/Logs/rc-server.log</string>
+</dict>
+</plist>

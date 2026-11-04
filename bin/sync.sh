@@ -53,10 +53,20 @@ PUSH=0
 # skills for over half an hour, and --auto would have committed any loose file in it onto that
 # branch and pushed it into the open PR. Prints why, or nothing when the repo is on its default
 # branch (origin/HEAD; main or master).
+# A clone made with `git init` + `remote add` has no origin/HEAD, and the guard must not switch
+# itself off there, so it falls back to origin/main or origin/master. With neither it says so.
 off_default() {
-  local r="$1" branch default since
+  local r="$1" branch default since d
   default=$(git -C "$r" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null); default=${default#origin/}
-  [[ -z "$default" ]] && return 0
+  if [[ -z "$default" ]]; then
+    for d in main master; do
+      git -C "$r" rev-parse -q --verify "refs/remotes/origin/$d" >/dev/null && { default=$d; break; }
+    done
+  fi
+  if [[ -z "$default" ]]; then
+    echo "no default branch known (no origin/HEAD, origin/main or origin/master) - skipped. Fix with: git -C $r remote set-head origin --auto"
+    return 0
+  fi
   branch=$(git -C "$r" branch --show-current)
   [[ "$branch" == "$default" ]] && return 0
   since=$(git -C "$r" reflog -1 --date=relative --grep-reflog='checkout: moving from' --format='%gd' 2>/dev/null | sed -n 's/.*@{\(.*\)}/\1/p')

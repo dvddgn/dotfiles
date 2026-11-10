@@ -46,10 +46,30 @@ if tmux has-session -t "=$SESSION" 2>/dev/null; then
   done
   for p in $tree; do
     if ps -o command= -p "$p" 2>/dev/null | grep -qE '(^|/)claude( .*)? (rc|remote-control)( |$)'; then
-      exit 0
+      # Stale-version check. Claude auto-updates and deletes old versions, but a long-running
+      # server keeps spawning sessions from the version it started on. Once that version is
+      # deleted every new session fails with "spawn error: ENOENT .../versions/<old>" and the
+      # app just shows a session that never responds (seen 2026-11-10: server on 2.1.312,
+      # installed 2.1.322).
+      running_bin=$(lsof -a -p "$p" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | grep '/claude/versions/' | head -1)
+      current_bin=$(readlink "$HOME/.local/bin/claude" 2>/dev/null || true)
+      if [ -z "$running_bin" ] || [ -z "$current_bin" ] || [ "$running_bin" = "$current_bin" ]; then
+        exit 0
+      fi
+      # Sessions started from the app run as children of the server; killing it would kill them.
+      active=$(pgrep -P "$p" 2>/dev/null | wc -l | tr -d ' ')
+      if [ "$active" -gt 0 ]; then
+        if [ ! -e "$running_bin" ]; then
+          echo "$(stamp) WARNING: server runs deleted $running_bin - new sessions will fail; $active session(s) active, not restarting. Restart by hand: tmux kill-session -t rc-server"
+        fi
+        exit 0
+      fi
+      # Idle and out of date: restart now, before the old version is deleted.
+      echo "$(stamp) server on $(basename "$running_bin"), installed $(basename "$current_bin"), no active sessions - restarting"
+      break
     fi
   done
-  echo "$(stamp) session $SESSION exists but no claude rc process under pane $pane_pid - restarting"
+  [ -n "${running_bin:-}" ] || echo "$(stamp) session $SESSION exists but no claude rc process under pane $pane_pid - restarting"
   tmux kill-session -t "=$SESSION" 2>/dev/null || true
 fi
 
